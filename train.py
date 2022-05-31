@@ -21,7 +21,7 @@ from model import DiffusionModel
 # data
 # some datasets might be unavailable for download at times
 dataset_name = "oxford_flowers102"
-image_size = 32
+image_size = 64
 num_epochs = 500
 kid_image_size = 75  # resolution of KID measurement, default 299
 plot_interval = 10
@@ -34,7 +34,7 @@ learning_rate = 1e-3
 weight_decay = 1e-4
 
 # architecture
-num_resolutions = 2
+num_resolutions = 3
 block_depth = 2
 width = 32
 
@@ -58,6 +58,7 @@ model = DiffusionModel(
     time_margin=time_margin,
     ema=ema,
     kid_image_size=kid_image_size,
+    plot_interval=plot_interval,
 )
 
 model.compile(
@@ -79,7 +80,7 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 )
 
 # run training
-history = model.fit(
+model.fit(
     train_dataset,
     epochs=num_epochs,
     validation_data=val_dataset,
@@ -90,8 +91,5 @@ history = model.fit(
 )
 
 # load best model
-# model.load_weights(checkpoint_path)
-# generate_images_with(model, history, id)
-
-# plot history
-# plot_history(history, id)
+model.load_weights(checkpoint_path)
+model.plot_images()

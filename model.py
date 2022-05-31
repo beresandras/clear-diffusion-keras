@@ -10,7 +10,15 @@ from metrics import KID
 
 class DiffusionModel(keras.Model):
     def __init__(
-        self, id, augmenter, network, batch_size, time_margin, ema, kid_image_size
+        self,
+        id,
+        augmenter,
+        network,
+        batch_size,
+        time_margin,
+        ema,
+        kid_image_size,
+        plot_interval,
     ):
         super().__init__()
         self.id = id
@@ -24,6 +32,7 @@ class DiffusionModel(keras.Model):
         self.time_margin = time_margin
         self.ema = ema
         self.kid_image_size = kid_image_size
+        self.plot_interval = plot_interval
 
     def compile(self, **kwargs):
         super().compile(**kwargs)
@@ -156,21 +165,22 @@ class DiffusionModel(keras.Model):
         return {m.name: m.result() for m in self.metrics}
 
     def plot_images(self, epoch=-1, logs=None, num_rows=4, num_cols=8):
-        num_images = num_rows * num_cols
+        if (epoch + 1) % self.plot_interval == 0:
+            num_images = num_rows * num_cols
 
-        generated_images = self.generate(num_images, diffusion_steps=10)
-        generated_images = 0.5 * (1.0 + generated_images)
-        generated_images = tf.clip_by_value(generated_images, 0.0, 1.0)
+            generated_images = self.generate(num_images, diffusion_steps=10)
+            generated_images = 0.5 * (1.0 + generated_images)
+            generated_images = tf.clip_by_value(generated_images, 0.0, 1.0)
 
-        plt.figure(figsize=(num_cols * 1.5, num_rows * 1.5))
-        for row in range(num_rows):
-            for col in range(num_cols):
-                index = row * num_cols + col
-                plt.subplot(num_rows, num_cols, index + 1)
-                plt.imshow(generated_images[index])
-                plt.axis("off")
-        plt.tight_layout()
-        plt.savefig(
-            "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result())
-        )
-        plt.close()
+            plt.figure(figsize=(num_cols * 1.5, num_rows * 1.5))
+            for row in range(num_rows):
+                for col in range(num_cols):
+                    index = row * num_cols + col
+                    plt.subplot(num_rows, num_cols, index + 1)
+                    plt.imshow(generated_images[index])
+                    plt.axis("off")
+            plt.tight_layout()
+            plt.savefig(
+                "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result())
+            )
+            plt.close()
