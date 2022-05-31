@@ -40,7 +40,7 @@ def preprocess_birds(image_size, padding=0.25):
 
         # resize and clip
         image = tf.image.resize(
-            image, size=[image_size, image_size], method=tf.image.ResizeMethod.AREA
+            image, size=[image_size, image_size], method="bicubic", antialias=True
         )
         return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 
@@ -63,7 +63,7 @@ def preprocess_flowers(image_size):
 
         # resize and clip
         image = tf.image.resize(
-            image, size=[image_size, image_size], method=tf.image.ResizeMethod.AREA
+            image, size=[image_size, image_size], method="bicubic", antialias=True
         )
         return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 

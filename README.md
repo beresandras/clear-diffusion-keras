@@ -1,1 +1,1 @@
-# generative-diffusion-keras
+# Generative Diffusion Keras
