@@ -1,19 +1,20 @@
 import os
 import matplotlib
 
-from model import DiffusionModel
-
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"  # suppress info-level logs
+matplotlib.use("Agg")
+
 import tensorflow as tf
+import tensorflow_addons as tfa
+
+tf.get_logger().setLevel("WARN")  # suppress info-level logs
 
 from tensorflow import keras
 
 from dataset import prepare_dataset
 from architecture import get_augmenter, get_network
+from model import DiffusionModel
 
-tf.get_logger().setLevel("WARN")  # suppress info-level logs
-
-matplotlib.use("Agg")
 
 # hyperparameters
 
@@ -21,19 +22,19 @@ matplotlib.use("Agg")
 # some datasets might be unavailable for download at times
 dataset_name = "oxford_flowers102"
 image_size = 32
-num_epochs = 10
+num_epochs = 500
 kid_image_size = 75  # resolution of KID measurement, default 299
-plot_interval = 1
+plot_interval = 10
 
 # optimization
 batch_size = 64
 time_margin = 0.05
-ema = 0.99
+ema = 0.999
 learning_rate = 1e-3
-# weight_decay = 1e-4
+weight_decay = 1e-4
 
 # architecture
-num_resolutions = 3
+num_resolutions = 2
 block_depth = 2
 width = 32
 
@@ -45,6 +46,7 @@ val_dataset = prepare_dataset(dataset_name, "validation", image_size, batch_size
 
 # create model
 model = DiffusionModel(
+    id=id,
     augmenter=get_augmenter(image_size=image_size),
     network=get_network(
         image_size=image_size,
@@ -59,9 +61,12 @@ model = DiffusionModel(
 )
 
 model.compile(
-    optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+    optimizer=tfa.optimizers.AdamW(
+        learning_rate=learning_rate, weight_decay=weight_decay
+    ),
     loss=keras.losses.mean_absolute_error,
 )
+model.plot_images()
 
 # checkpointing
 checkpoint_path = "checkpoints/model_{}".format(id)

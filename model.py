@@ -10,15 +10,16 @@ from metrics import KID
 
 class DiffusionModel(keras.Model):
     def __init__(
-        self, augmenter, network, batch_size, time_margin, ema, kid_image_size
+        self, id, augmenter, network, batch_size, time_margin, ema, kid_image_size
     ):
         super().__init__()
+        self.id = id
 
         self.augmenter = augmenter
-        self.network = network  # (num_resolutions=3, block_depth=2, width=32)
+        self.network = network
         self.ema_network = keras.models.clone_model(network)
 
-        self.image_size = network.input_shape[1]
+        self.image_size = network.input_shape[0][1]
         self.batch_size = batch_size
         self.time_margin = time_margin
         self.ema = ema
@@ -35,7 +36,7 @@ class DiffusionModel(keras.Model):
 
     @property
     def metrics(self):
-        return [self.noise_loss_tracker, self.image_loss_tracker]
+        return [self.noise_loss_tracker, self.image_loss_tracker, self.kid]
 
     @abstractmethod
     def noise_schedule(self, diffusion_times):
@@ -169,5 +170,7 @@ class DiffusionModel(keras.Model):
                 plt.imshow(generated_images[index])
                 plt.axis("off")
         plt.tight_layout()
-        plt.savefig("images/0_{}_{:.3f}.png".format(epoch + 1, self.kid.result()))
+        plt.savefig(
+            "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result())
+        )
         plt.close()
