@@ -97,9 +97,11 @@ class DiffusionModel(keras.Model):
         noise_samples = tf.random.normal(
             shape=(num_images, self.image_size, self.image_size, 3)
         )
-        return self.diffusion_process(
+        generated_images = self.diffusion_process(
             initial_noise=noise_samples, diffusion_steps=diffusion_steps
         )
+        generated_images = 0.5 * (1.0 + generated_images)
+        return tf.clip_by_value(generated_images, 0.0, 1.0)
 
     def train_step(self, images):
         images = self.augmenter(images, training=True)
@@ -159,7 +161,8 @@ class DiffusionModel(keras.Model):
         self.noise_loss_tracker.update_state(noise_loss)
         self.image_loss_tracker.update_state(image_loss)
 
-        generated_images = self.generate(self.batch_size, diffusion_steps=10)
+        images = 0.5 * (1.0 + images)
+        generated_images = self.generate(self.batch_size, diffusion_steps=5)
         self.kid.update_state(images, generated_images)
 
         return {m.name: m.result() for m in self.metrics}
@@ -168,9 +171,7 @@ class DiffusionModel(keras.Model):
         if (epoch + 1) % self.plot_interval == 0:
             num_images = num_rows * num_cols
 
-            generated_images = self.generate(num_images, diffusion_steps=10)
-            generated_images = 0.5 * (1.0 + generated_images)
-            generated_images = tf.clip_by_value(generated_images, 0.0, 1.0)
+            generated_images = self.generate(num_images, diffusion_steps=20)
 
             plt.figure(figsize=(num_cols * 1.5, num_rows * 1.5))
             for row in range(num_rows):

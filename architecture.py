@@ -10,6 +10,7 @@ def get_augmenter(image_size):
         [
             layers.InputLayer(input_shape=(image_size, image_size, 3)),
             preprocessing.RandomFlip(mode="horizontal"),
+            preprocessing.Rescaling(scale=2.0, offset=-1.0),
         ],
         name="augmenter",
     )
