@@ -33,7 +33,6 @@ class DiffusionModel(keras.Model):
         self.time_margin = time_margin
         self.ema = ema
         self.kid_image_size = kid_image_size
-        self.plot_image_size = (plot_image_size // self.image_size) * self.image_size
         self.plot_interval = plot_interval
 
     def compile(self, **kwargs):
@@ -55,16 +54,31 @@ class DiffusionModel(keras.Model):
         return noise_rates
 
     @abstractmethod
-    def denoise(self, noisy_images, noise_rates, training, next_noise_rates=None):
+    def denoise(
+        self,
+        noisy_images,
+        noise_rates,
+        training,
+        # only needed for second order denoising:
+        second_order_alpha=None,
+        diffusion_times=None,
+        step_size=None,
+    ):
         if training:
             network = self.network
         else:
             network = self.ema_network
 
         pred_noises = network([noisy_images, noise_rates], training=training)
-        if next_noise_rates is not None:
+
+        if second_order_alpha is not None:
+            pred_noises /= second_order_alpha
             pred_images = (1.0 - noise_rates) ** -0.5 * (
                 noisy_images - noise_rates ** 0.5 * pred_noises
+            )
+
+            next_noise_rates = self.noise_schedule(
+                diffusion_times - second_order_alpha * step_size
             )
             next_noisy_images = (
                 1.0 - next_noise_rates
@@ -72,49 +86,91 @@ class DiffusionModel(keras.Model):
             next_pred_noises = network(
                 [next_noisy_images, next_noise_rates], training=training
             )
-            pred_noises = 0.5 * (pred_noises + next_pred_noises)
+
+            pred_noises = (
+                1.0 - 1.0 / (2.0 * second_order_alpha)
+            ) * pred_noises + 1.0 / (2.0 * second_order_alpha) * next_pred_noises
+
         pred_images = (1.0 - noise_rates) ** -0.5 * (
             noisy_images - noise_rates ** 0.5 * pred_noises
         )
 
         return pred_images, pred_noises
 
-    def diffusion_process(self, initial_noise, diffusion_steps):
+    def diffusion_process(
+        self,
+        initial_noise,
+        diffusion_steps,
+        stochastic,
+        variance_preserving,
+        second_order_alpha,
+    ):
         batch_size = tf.shape(initial_noise)[0]
-        diffusion_times = tf.linspace(
-            1.0 - self.time_margin, self.time_margin, diffusion_steps + 1
-        )
-        diffusion_times = tf.reshape(
-            diffusion_times, shape=(diffusion_steps + 1, 1, 1, 1, 1)
-        )
-        diffusion_times = tf.broadcast_to(
-            diffusion_times, shape=(diffusion_steps + 1, batch_size, 1, 1, 1)
-        )
+        step_size = (1.0 - 2.0 * self.time_margin) / diffusion_steps
 
         noisy_images = initial_noise
         for step in range(diffusion_steps):
-            noise_rates = self.noise_schedule(diffusion_times[step])
-            next_noise_rates = self.noise_schedule(diffusion_times[step + 1])
+            diffusion_times = (
+                tf.ones((batch_size, 1, 1, 1)) - self.time_margin - step * step_size
+            )
+            next_diffusion_times = diffusion_times - step_size
+
+            noise_rates = self.noise_schedule(diffusion_times)
+            next_noise_rates = self.noise_schedule(next_diffusion_times)
 
             pred_images, pred_noises = self.denoise(
                 noisy_images,
                 noise_rates,
                 training=False,
-                # next_noise_rates=next_noise_rates,
+                second_order_alpha=second_order_alpha,
+                diffusion_times=diffusion_times,
+                step_size=step_size,
             )
 
-            noisy_images = (
-                1.0 - next_noise_rates
-            ) ** 0.5 * pred_images + next_noise_rates ** 0.5 * pred_noises
+            if stochastic:
+                sample_noise_rates = (
+                    (1.0 - (1.0 - noise_rates) / (1.0 - next_noise_rates))
+                    * next_noise_rates
+                    / noise_rates
+                )
+                noisy_images = (1.0 - next_noise_rates) ** 0.5 * pred_images + (
+                    next_noise_rates - sample_noise_rates
+                ) ** 0.5 * pred_noises
+
+                sample_noises = tf.random.normal(
+                    shape=(batch_size, self.image_size, self.image_size, 3)
+                )
+                if variance_preserving:
+                    noisy_images += sample_noise_rates ** 0.5 * sample_noises
+                else:
+                    noisy_images += (
+                        sample_noise_rates * noise_rates / next_noise_rates
+                    ) ** 0.5 * sample_noises
+
+            else:
+                noisy_images = (
+                    1.0 - next_noise_rates
+                ) ** 0.5 * pred_images + next_noise_rates ** 0.5 * pred_noises
 
         return pred_images
 
-    def generate(self, num_images, diffusion_steps):
-        noise_samples = tf.random.normal(
+    def generate(
+        self,
+        num_images,
+        diffusion_steps,
+        stochastic,
+        variance_preserving,
+        second_order_alpha,
+    ):
+        initial_noise = tf.random.normal(
             shape=(num_images, self.image_size, self.image_size, 3)
         )
         generated_images = self.diffusion_process(
-            initial_noise=noise_samples, diffusion_steps=diffusion_steps
+            initial_noise,
+            diffusion_steps,
+            stochastic,
+            variance_preserving,
+            second_order_alpha,
         )
         generated_images = 0.5 * (1.0 + generated_images)
         return tf.clip_by_value(generated_images, 0.0, 1.0)
@@ -178,27 +234,49 @@ class DiffusionModel(keras.Model):
         self.image_loss_tracker.update_state(image_loss)
 
         images = 0.5 * (1.0 + images)
-        generated_images = self.generate(self.batch_size, diffusion_steps=5)
+        generated_images = self.generate(
+            self.batch_size,
+            diffusion_steps=5,
+            stochastic=False,
+            variance_preserving=False,
+            second_order_alpha=None,
+        )
         self.kid.update_state(images, generated_images)
 
         return {m.name: m.result() for m in self.metrics}
 
-    def plot_images(self, epoch=-1, logs=None, num_rows=4, num_cols=8):
+    def plot_images(
+        self,
+        epoch=-1,
+        logs=None,
+        num_rows=4,
+        num_cols=8,
+        diffusion_steps=20,
+        stochastic=False,
+        variance_preserving=False,
+        second_order_alpha=None,
+    ):
         if (epoch + 1) % self.plot_interval == 0:
-            generated_images = self.generate(num_rows * num_cols, diffusion_steps=20)
+            generated_images = self.generate(
+                num_rows * num_cols,
+                diffusion_steps,
+                stochastic,
+                variance_preserving,
+                second_order_alpha,
+            )
+
+            plot_image_size = 2 * self.image_size
             generated_images = tf.image.resize(
-                generated_images,
-                (self.plot_image_size, self.plot_image_size),
-                method="nearest",
+                generated_images, (plot_image_size, plot_image_size), method="nearest"
             )
             generated_images = tf.reshape(
                 generated_images,
-                (num_rows, num_cols, self.plot_image_size, self.plot_image_size, 3),
+                (num_rows, num_cols, plot_image_size, plot_image_size, 3),
             )
             generated_images = tf.transpose(generated_images, (0, 2, 1, 3, 4))
             generated_images = tf.reshape(
                 generated_images,
-                (num_rows * self.plot_image_size, num_cols * self.plot_image_size, 3),
+                (num_rows * plot_image_size, num_cols * plot_image_size, 3),
             )
             plt.imsave(
                 "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result()),
