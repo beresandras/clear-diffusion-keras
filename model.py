@@ -55,13 +55,24 @@ class DiffusionModel(keras.Model):
         return noise_rates
 
     @abstractmethod
-    def denoise(self, noisy_images, noise_rates, training):
+    def denoise(self, noisy_images, noise_rates, training, next_noise_rates=None):
         if training:
             network = self.network
         else:
             network = self.ema_network
 
         pred_noises = network([noisy_images, noise_rates], training=training)
+        if next_noise_rates is not None:
+            pred_images = (1.0 - noise_rates) ** -0.5 * (
+                noisy_images - noise_rates ** 0.5 * pred_noises
+            )
+            next_noisy_images = (
+                1.0 - next_noise_rates
+            ) ** 0.5 * pred_images + next_noise_rates ** 0.5 * pred_noises
+            next_pred_noises = network(
+                [next_noisy_images, next_noise_rates], training=training
+            )
+            pred_noises = 0.5 * (pred_noises + next_pred_noises)
         pred_images = (1.0 - noise_rates) ** -0.5 * (
             noisy_images - noise_rates ** 0.5 * pred_noises
         )
@@ -86,7 +97,10 @@ class DiffusionModel(keras.Model):
             next_noise_rates = self.noise_schedule(diffusion_times[step + 1])
 
             pred_images, pred_noises = self.denoise(
-                noisy_images, noise_rates, training=False
+                noisy_images,
+                noise_rates,
+                training=False,
+                # next_noise_rates=next_noise_rates,
             )
 
             noisy_images = (
