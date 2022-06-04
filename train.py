@@ -24,6 +24,7 @@ dataset_name = "oxford_flowers102"
 image_size = 64
 num_epochs = 500
 kid_image_size = 75  # resolution of KID measurement, default 299
+plot_image_size = 128
 plot_interval = 10
 
 # optimization
@@ -58,6 +59,7 @@ model = DiffusionModel(
     time_margin=time_margin,
     ema=ema,
     kid_image_size=kid_image_size,
+    plot_image_size=plot_image_size,
     plot_interval=plot_interval,
 )
 
@@ -92,4 +94,6 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
-model.plot_images()
+model.plot_images(num_rows=8)
+
+# model.evaluate(val_dataset)

@@ -18,6 +18,7 @@ class DiffusionModel(keras.Model):
         time_margin,
         ema,
         kid_image_size,
+        plot_image_size,
         plot_interval,
     ):
         super().__init__()
@@ -32,6 +33,7 @@ class DiffusionModel(keras.Model):
         self.time_margin = time_margin
         self.ema = ema
         self.kid_image_size = kid_image_size
+        self.plot_image_size = (plot_image_size // self.image_size) * self.image_size
         self.plot_interval = plot_interval
 
     def compile(self, **kwargs):
@@ -169,19 +171,22 @@ class DiffusionModel(keras.Model):
 
     def plot_images(self, epoch=-1, logs=None, num_rows=4, num_cols=8):
         if (epoch + 1) % self.plot_interval == 0:
-            num_images = num_rows * num_cols
-
-            generated_images = self.generate(num_images, diffusion_steps=20)
-
-            plt.figure(figsize=(num_cols * 1.5, num_rows * 1.5))
-            for row in range(num_rows):
-                for col in range(num_cols):
-                    index = row * num_cols + col
-                    plt.subplot(num_rows, num_cols, index + 1)
-                    plt.imshow(generated_images[index])
-                    plt.axis("off")
-            plt.tight_layout()
-            plt.savefig(
-                "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result())
+            generated_images = self.generate(num_rows * num_cols, diffusion_steps=20)
+            generated_images = tf.image.resize(
+                generated_images,
+                (self.plot_image_size, self.plot_image_size),
+                method="nearest",
             )
-            plt.close()
+            generated_images = tf.reshape(
+                generated_images,
+                (num_rows, num_cols, self.plot_image_size, self.plot_image_size, 3),
+            )
+            generated_images = tf.transpose(generated_images, (0, 2, 1, 3, 4))
+            generated_images = tf.reshape(
+                generated_images,
+                (num_rows * self.plot_image_size, num_cols * self.plot_image_size, 3),
+            )
+            plt.imsave(
+                "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result()),
+                generated_images.numpy(),
+            )
