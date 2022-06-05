@@ -65,7 +65,7 @@ model.compile(
     ),
     loss=keras.losses.mean_squared_error,
 )
-model.plot_images()
+model.plot_images(epoch=0)
 
 # checkpointing
 checkpoint_path = "checkpoints/model_{}".format(id)
