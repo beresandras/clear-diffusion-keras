@@ -10,16 +10,7 @@ from metrics import KID
 
 class DiffusionModel(keras.Model):
     def __init__(
-        self,
-        id,
-        augmenter,
-        network,
-        batch_size,
-        time_margin,
-        ema,
-        kid_image_size,
-        plot_image_size,
-        plot_interval,
+        self, id, augmenter, network, batch_size, time_margin, ema, kid_image_size
     ):
         super().__init__()
         self.id = id
@@ -33,7 +24,6 @@ class DiffusionModel(keras.Model):
         self.time_margin = time_margin
         self.ema = ema
         self.kid_image_size = kid_image_size
-        self.plot_interval = plot_interval
 
     def compile(self, **kwargs):
         super().compile(**kwargs)
@@ -247,7 +237,7 @@ class DiffusionModel(keras.Model):
 
     def plot_images(
         self,
-        epoch=-1,
+        epoch=None,
         logs=None,
         num_rows=4,
         num_cols=8,
@@ -256,29 +246,30 @@ class DiffusionModel(keras.Model):
         variance_preserving=False,
         second_order_alpha=None,
     ):
-        if (epoch + 1) % self.plot_interval == 0:
-            generated_images = self.generate(
-                num_rows * num_cols,
-                diffusion_steps,
-                stochastic,
-                variance_preserving,
-                second_order_alpha,
-            )
+        generated_images = self.generate(
+            num_rows * num_cols,
+            diffusion_steps,
+            stochastic,
+            variance_preserving,
+            second_order_alpha,
+        )
 
-            plot_image_size = 2 * self.image_size
-            generated_images = tf.image.resize(
-                generated_images, (plot_image_size, plot_image_size), method="nearest"
-            )
-            generated_images = tf.reshape(
-                generated_images,
-                (num_rows, num_cols, plot_image_size, plot_image_size, 3),
-            )
-            generated_images = tf.transpose(generated_images, (0, 2, 1, 3, 4))
-            generated_images = tf.reshape(
-                generated_images,
-                (num_rows * plot_image_size, num_cols * plot_image_size, 3),
-            )
-            plt.imsave(
-                "images/{}_{}_{:.3f}.png".format(self.id, epoch + 1, self.kid.result()),
-                generated_images.numpy(),
-            )
+        plot_image_size = 2 * self.image_size
+        generated_images = tf.image.resize(
+            generated_images, (plot_image_size, plot_image_size), method="nearest"
+        )
+        generated_images = tf.reshape(
+            generated_images,
+            (num_rows, num_cols, plot_image_size, plot_image_size, 3),
+        )
+        generated_images = tf.transpose(generated_images, (0, 2, 1, 3, 4))
+        generated_images = tf.reshape(
+            generated_images,
+            (num_rows * plot_image_size, num_cols * plot_image_size, 3),
+        )
+        plt.imsave(
+            "images/{}_{}_{:.3f}.png".format(
+                self.id, "final" if epoch is None else epoch + 1, self.kid.result()
+            ),
+            generated_images.numpy(),
+        )

@@ -21,11 +21,9 @@ from model import DiffusionModel
 # data
 # some datasets might be unavailable for download at times
 dataset_name = "oxford_flowers102"
+num_epochs = 50
 image_size = 64
-num_epochs = 500
 kid_image_size = 75  # resolution of KID measurement, default 299
-plot_image_size = 128
-plot_interval = 10
 
 # optimization
 batch_size = 64
@@ -59,15 +57,13 @@ model = DiffusionModel(
     time_margin=time_margin,
     ema=ema,
     kid_image_size=kid_image_size,
-    plot_image_size=plot_image_size,
-    plot_interval=plot_interval,
 )
 
 model.compile(
     optimizer=tfa.optimizers.AdamW(
         learning_rate=learning_rate, weight_decay=weight_decay
     ),
-    loss=keras.losses.mean_absolute_error,
+    loss=keras.losses.mean_squared_error,
 )
 model.plot_images()
 

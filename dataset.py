@@ -119,7 +119,15 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
         "celeb_a": ["train", "validation"],
         "cifar10": ["train", "test"],
     }
-    split = split_names[dataset_name][split_index[split]]
+    split_name = split_names[dataset_name][split_index[split]]
+
+    repetitions = {
+        "caltech_birds2011": [10, 2],
+        "oxford_flowers102": [10, 5],
+        "celeb_a": [1, 1],
+        "cifar10": [1, 1],
+    }
+    repetition = repetitions[dataset_name][split_index[split]]
 
     # the validation dataset is shuffled as well, because data order matters
     # for the KID calculation
@@ -127,7 +135,7 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
         tfds.load(
             dataset_name,
             data_dir="D:/Documents/datasets/tensorflow/",
-            split=split,
+            split=split_name,
             shuffle_files=True,
         )
         .map(
@@ -135,6 +143,7 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
             num_parallel_calls=tf.data.experimental.AUTOTUNE,
         )
         .cache()
+        .repeat(repetition)
         .shuffle(10 * batch_size)
         .batch(batch_size, drop_remainder=True)
         .prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
