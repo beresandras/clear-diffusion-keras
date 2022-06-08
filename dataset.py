@@ -132,19 +132,14 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
     # the validation dataset is shuffled as well, because data order matters
     # for the KID calculation
     return (
-        tfds.load(
-            dataset_name,
-            data_dir="D:/Documents/datasets/tensorflow/",
-            split=split_name,
-            shuffle_files=True,
-        )
+        tfds.load(dataset_name, split=split_name, shuffle_files=True)
         .map(
             preprocess_image,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
+            num_parallel_calls=tf.data.AUTOTUNE,
         )
         .cache()
         .repeat(repetition)
         .shuffle(10 * batch_size)
         .batch(batch_size, drop_remainder=True)
-        .prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        .prefetch(buffer_size=tf.data.AUTOTUNE)
     )

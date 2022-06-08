@@ -2,15 +2,14 @@ import math
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from tensorflow.keras.layers.experimental import preprocessing
 
 
 def get_augmenter(image_size):
     return keras.Sequential(
         [
             layers.InputLayer(input_shape=(image_size, image_size, 3)),
-            preprocessing.RandomFlip(mode="horizontal"),
-            preprocessing.Rescaling(scale=2.0, offset=-1.0),
+            layers.RandomFlip(mode="horizontal"),
+            layers.Rescaling(scale=2.0, offset=-1.0),
         ],
         name="augmenter",
     )
