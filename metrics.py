@@ -74,5 +74,5 @@ class KID(keras.metrics.Metric):
     def result(self):
         return self.kid_tracker.result()
 
-    def reset_states(self):
-        self.kid_tracker.reset_states()
+    def reset_state(self):
+        self.kid_tracker.reset_state()
