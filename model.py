@@ -59,6 +59,13 @@ class DiffusionModel(keras.Model):
                 end_noise_rate - start_noise_rate
             )
 
+        elif self.schedule_type == "cosine":
+            start_angle = tf.asin(start_noise_rate ** 0.5)
+            end_angle = tf.asin(end_noise_rate ** 0.5)
+            diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
+
+            noise_rates = tf.sin(diffusion_angles) ** 2
+
         elif self.schedule_type == "log-snr-linear":
             noise_rates = start_snr ** diffusion_times / (
                 start_snr * end_snr ** diffusion_times + start_snr ** diffusion_times
@@ -87,15 +94,8 @@ class DiffusionModel(keras.Model):
                 (1.0 - end_noise_rate) / (1.0 - start_noise_rate)
             ) ** (diffusion_times ** 2)
 
-        elif self.schedule_type == "cosine":
-            start_angle = tf.asin(start_noise_rate ** 0.5)
-            end_angle = tf.asin(end_noise_rate ** 0.5)
-            diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-
-            noise_rates = tf.sin(diffusion_angles) ** 2
-
         else:
-            raise NotImplementedError
+            raise NotImplementedError("Unsupported sampling schedule")
 
         signal_rates = 1.0 - noise_rates
         return signal_rates, noise_rates
