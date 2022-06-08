@@ -1,6 +1,8 @@
 *.pyc
 
 .vscode/
-images*/
-checkpoints*/
+images/
+checkpoints/
+plots/
+
 notes.txt

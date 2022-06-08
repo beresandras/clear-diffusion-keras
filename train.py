@@ -27,10 +27,13 @@ kid_image_size = 75  # resolution of KID measurement, default 299
 
 # optimization
 batch_size = 64
-time_margin = 0.05
 ema = 0.999
 learning_rate = 1e-3
 weight_decay = 1e-4
+
+# sampling
+start_log_snr = 4.0
+end_log_snr = -6.0
 
 # architecture
 num_resolutions = 3
@@ -54,8 +57,9 @@ model = DiffusionModel(
         width=width,
     ),
     batch_size=batch_size,
-    time_margin=time_margin,
     ema=ema,
+    start_log_snr=start_log_snr,
+    end_log_snr=end_log_snr,
     kid_image_size=kid_image_size,
 )
 
@@ -63,7 +67,7 @@ model.compile(
     optimizer=tfa.optimizers.AdamW(
         learning_rate=learning_rate, weight_decay=weight_decay
     ),
-    loss=keras.losses.mean_squared_error,
+    loss=keras.losses.mean_absolute_error,
 )
 model.plot_images(epoch=0)
 
