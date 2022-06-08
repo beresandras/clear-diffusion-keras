@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
-from abc import abstractmethod
 from tensorflow import keras
 
 from metrics import KID
@@ -17,6 +16,7 @@ class DiffusionModel(keras.Model):
         ema,
         start_log_snr,
         end_log_snr,
+        schedule_type,
         kid_image_size,
     ):
         super().__init__()
@@ -31,6 +31,7 @@ class DiffusionModel(keras.Model):
         self.ema = ema
         self.start_log_snr = start_log_snr
         self.end_log_snr = end_log_snr
+        self.schedule_type = schedule_type
         self.kid_image_size = kid_image_size
 
     def compile(self, **kwargs):
@@ -46,7 +47,6 @@ class DiffusionModel(keras.Model):
     def metrics(self):
         return [self.noise_loss_tracker, self.image_loss_tracker, self.kid]
 
-    @abstractmethod
     def noise_schedule(self, diffusion_times):
         start_snr = tf.exp(self.start_log_snr)
         end_snr = tf.exp(self.end_log_snr)
@@ -54,16 +54,52 @@ class DiffusionModel(keras.Model):
         start_noise_rate = 1.0 / (1.0 + start_snr)
         end_noise_rate = 1.0 / (1.0 + end_snr)
 
-        start_angle = tf.asin(start_noise_rate ** 0.5)
-        end_angle = tf.asin(end_noise_rate ** 0.5)
+        if self.schedule_type == "linear":
+            noise_rates = start_noise_rate + diffusion_times * (
+                end_noise_rate - start_noise_rate
+            )
 
-        diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-        noise_rates = tf.sin(diffusion_angles) ** 2
+        elif self.schedule_type == "log-snr-linear":
+            noise_rates = start_snr ** diffusion_times / (
+                start_snr * end_snr ** diffusion_times + start_snr ** diffusion_times
+            )
+
+        elif self.schedule_type == "log-noise-linear":
+            noise_rates = (
+                start_noise_rate
+                * (end_noise_rate / start_noise_rate) ** diffusion_times
+            )
+
+        elif self.schedule_type == "log-signal-linear":
+            noise_rates = (
+                1.0
+                - (1.0 - start_noise_rate)
+                * ((1.0 - end_noise_rate) / (1.0 - start_noise_rate)) ** diffusion_times
+            )
+
+        elif self.schedule_type == "noise-step-linear":
+            noise_rates = start_noise_rate * (end_noise_rate / start_noise_rate) ** (
+                diffusion_times ** 2
+            )
+
+        elif self.schedule_type == "signal-step-linear":
+            noise_rates = 1.0 - (1.0 - start_noise_rate) * (
+                (1.0 - end_noise_rate) / (1.0 - start_noise_rate)
+            ) ** (diffusion_times ** 2)
+
+        elif self.schedule_type == "cosine":
+            start_angle = tf.asin(start_noise_rate ** 0.5)
+            end_angle = tf.asin(end_noise_rate ** 0.5)
+            diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
+
+            noise_rates = tf.sin(diffusion_angles) ** 2
+
+        else:
+            raise NotImplementedError
 
         signal_rates = 1.0 - noise_rates
         return signal_rates, noise_rates
 
-    @abstractmethod
     def denoise(
         self,
         noisy_images,

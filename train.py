@@ -34,6 +34,7 @@ weight_decay = 1e-4
 # sampling
 start_log_snr = 4.0
 end_log_snr = -6.0
+schedule_type = "cosine"
 
 # architecture
 num_resolutions = 3
@@ -60,6 +61,7 @@ model = DiffusionModel(
     ema=ema,
     start_log_snr=start_log_snr,
     end_log_snr=end_log_snr,
+    schedule_type=schedule_type,
     kid_image_size=kid_image_size,
 )
 
