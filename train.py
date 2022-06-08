@@ -37,9 +37,8 @@ end_log_snr = -6.0
 schedule_type = "cosine"
 
 # architecture
-num_resolutions = 3
+widths = [32, 64, 96, 128]
 block_depth = 2
-width = 32
 
 id = 0
 
@@ -53,9 +52,8 @@ model = DiffusionModel(
     augmenter=get_augmenter(image_size=image_size),
     network=get_network(
         image_size=image_size,
-        num_resolutions=num_resolutions,
+        width=widths,
         block_depth=block_depth,
-        width=width,
     ),
     batch_size=batch_size,
     ema=ema,

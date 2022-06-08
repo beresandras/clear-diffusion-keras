@@ -16,14 +16,14 @@ def get_augmenter(image_size):
     )
 
 
-def get_network(image_size, num_resolutions, block_depth, width):
-    def EmbeddingLayer(width, min_frequency=1.0, max_frequency=1000.0):
+def get_network(image_size, widths, block_depth):
+    def EmbeddingLayer(embedding_dims, min_frequency=1.0, max_frequency=1000.0):
         def sinusoidal_embedding(x):
             frequencies = tf.exp(
                 tf.linspace(
                     tf.math.log(min_frequency),
                     tf.math.log(max_frequency),
-                    width // 2,
+                    embedding_dims // 2,
                 )
             )
             angular_speeds = 2.0 * math.pi * frequencies
@@ -83,23 +83,23 @@ def get_network(image_size, num_resolutions, block_depth, width):
     images = keras.Input(shape=(image_size, image_size, 3))
     noise_rates = keras.Input(shape=(1, 1, 1))
 
-    x = layers.Conv2D(width, kernel_size=1)(images)
+    x = layers.Conv2D(widths[0], kernel_size=1)(images)
     skips = [x]
 
-    n = EmbeddingLayer(width)(noise_rates)
+    n = EmbeddingLayer(widths[0])(noise_rates)
     n = layers.UpSampling2D(size=image_size, interpolation="nearest")(n)
     x = layers.Concatenate()([x, n])
 
-    for i in range(num_resolutions):
-        x = DownBlock(block_depth, (i + 1) * width)([x, skips])
+    for width in widths[:-1]:
+        x = DownBlock(block_depth, width)([x, skips])
 
     for _ in range(block_depth):
-        x = ResidualBlock((num_resolutions + 1) * width)(x)
+        x = ResidualBlock(widths[-1])(x)
 
-    for i in reversed(range(num_resolutions)):
-        x = UpBlock(block_depth, (i + 1) * width)([x, skips])
+    for width in reversed(widths[:-1]):
+        x = UpBlock(block_depth, width)([x, skips])
 
-    x = layers.Concatenate()([x, skips.pop()])  # skips is empty after that
+    x = layers.Concatenate()([x, skips.pop()])
     x = layers.Conv2D(3, kernel_size=1)(x)
 
     return keras.Model([images, noise_rates], x, name="residual_unet")
