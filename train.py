@@ -23,7 +23,8 @@ from model import DiffusionModel
 dataset_name = "oxford_flowers102"
 num_epochs = 50
 image_size = 64
-kid_image_size = 75  # resolution of KID measurement, default 299
+kid_image_size = 75  # resolution of KID measurement (75/150/299)
+kid_diffusion_steps = 5
 
 # optimization
 batch_size = 64
@@ -52,7 +53,7 @@ model = DiffusionModel(
     augmenter=get_augmenter(image_size=image_size),
     network=get_network(
         image_size=image_size,
-        width=widths,
+        widths=widths,
         block_depth=block_depth,
     ),
     batch_size=batch_size,
@@ -61,6 +62,7 @@ model = DiffusionModel(
     end_log_snr=end_log_snr,
     schedule_type=schedule_type,
     kid_image_size=kid_image_size,
+    kid_diffusion_steps=kid_diffusion_steps,
 )
 
 model.compile(
@@ -69,7 +71,6 @@ model.compile(
     ),
     loss=keras.losses.mean_absolute_error,
 )
-model.plot_images(epoch=0)
 
 # checkpointing
 checkpoint_path = "checkpoints/model_{}".format(id)
@@ -82,6 +83,7 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 )
 
 # run training
+model.plot_images(epoch=0)
 model.fit(
     train_dataset,
     epochs=num_epochs,
@@ -94,6 +96,6 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
-model.plot_images(num_rows=8)
+model.plot_images(num_rows=8, diffusion_steps=200, stochastic=True)
 
 # model.evaluate(val_dataset)

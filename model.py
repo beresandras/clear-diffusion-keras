@@ -18,6 +18,7 @@ class DiffusionModel(keras.Model):
         end_log_snr,
         schedule_type,
         kid_image_size,
+        kid_diffusion_steps,
     ):
         super().__init__()
         self.id = id
@@ -33,6 +34,7 @@ class DiffusionModel(keras.Model):
         self.end_log_snr = end_log_snr
         self.schedule_type = schedule_type
         self.kid_image_size = kid_image_size
+        self.kid_diffusion_steps = kid_diffusion_steps
 
     def compile(self, **kwargs):
         super().compile(**kwargs)
@@ -198,10 +200,8 @@ class DiffusionModel(keras.Model):
                     noisy_images += sample_noise_rates ** 0.5 * sample_noises
                 else:
                     noisy_images += (
-                        sample_noise_rates
-                        * (noise_rates / next_noise_rates) ** 0.5
-                        * sample_noises
-                    )
+                        sample_noise_rates * (noise_rates / next_noise_rates)
+                    ) ** 0.5 * sample_noises
 
             else:
                 noisy_images = (
@@ -289,7 +289,7 @@ class DiffusionModel(keras.Model):
         images = 0.5 * (1.0 + images)
         generated_images = self.generate(
             self.batch_size,
-            diffusion_steps=5,
+            diffusion_steps=self.kid_diffusion_steps,
             stochastic=False,
             variance_preserving=False,
             second_order_alpha=None,
