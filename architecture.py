@@ -8,8 +8,8 @@ def get_augmenter(image_size):
     return keras.Sequential(
         [
             layers.InputLayer(input_shape=(image_size, image_size, 3)),
+            layers.Normalization(),
             layers.RandomFlip(mode="horizontal"),
-            layers.Rescaling(scale=2.0, offset=-1.0),
         ],
         name="augmenter",
     )

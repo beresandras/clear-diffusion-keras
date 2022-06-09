@@ -33,8 +33,8 @@ learning_rate = 1e-3
 weight_decay = 1e-4
 
 # sampling
-start_log_snr = 4.0
-end_log_snr = -6.0
+start_log_snr = 3.0
+end_log_snr = -7.0
 schedule_type = "cosine"
 
 # architecture
@@ -81,6 +81,8 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     mode="min",
     save_best_only=True,
 )
+
+model.augmenter.layers[0].adapt(train_dataset)
 
 # run training
 model.plot_images(epoch=0)
