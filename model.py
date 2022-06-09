@@ -229,8 +229,8 @@ class DiffusionModel(keras.Model):
         )
         generated_images = (
             generated_images
-            * self.model.augmenter.layers[0].variance[None, None, None, :] ** 0.5
-            + self.model.augmenter.layers[0].mean[None, None, None, :]
+            * self.augmenter.layers[0].variance[None, None, None, :] ** 0.5
+            + self.augmenter.layers[0].mean[None, None, None, :]
         )
         return tf.clip_by_value(generated_images, 0.0, 1.0)
 
@@ -289,8 +289,8 @@ class DiffusionModel(keras.Model):
         self.image_loss_tracker.update_state(image_loss)
 
         images = (
-            images * self.model.augmenter.layers[0].variance[None, None, None, :] ** 0.5
-            + self.model.augmenter.layers[0].mean[None, None, None, :]
+            images * self.augmenter.layers[0].variance[None, None, None, :] ** 0.5
+            + self.augmenter.layers[0].mean[None, None, None, :]
         )
         generated_images = self.generate(
             self.batch_size,
