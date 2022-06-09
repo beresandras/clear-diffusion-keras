@@ -119,12 +119,11 @@ class DiffusionModel(keras.Model):
             network = self.ema_network
 
         pred_noises = network([noisy_images, noise_rates], training=training)
+        pred_images = signal_rates ** -0.5 * (
+            noisy_images - noise_rates ** 0.5 * pred_noises
+        )
 
         if second_order_alpha is not None:
-            pred_images = signal_rates ** -0.5 * (
-                noisy_images - noise_rates ** 0.5 * pred_noises
-            )
-
             # use first estimate to sample alpha steps away
             next_signal_rates, next_noise_rates = self.noise_schedule(
                 diffusion_times - second_order_alpha * step_size
@@ -141,10 +140,9 @@ class DiffusionModel(keras.Model):
             pred_noises = (
                 1.0 - 1.0 / (2.0 * second_order_alpha)
             ) * pred_noises + 1.0 / (2.0 * second_order_alpha) * next_pred_noises
-
-        pred_images = signal_rates ** -0.5 * (
-            noisy_images - noise_rates ** 0.5 * pred_noises
-        )
+            pred_images = signal_rates ** -0.5 * (
+                noisy_images - noise_rates ** 0.5 * pred_noises
+            )
 
         # pred_images = tf.clip_by_value(pred_images, -1.0, 1.0)
         # pred_noises = noise_rates ** -0.5 * (
@@ -229,7 +227,11 @@ class DiffusionModel(keras.Model):
             variance_preserving,
             second_order_alpha,
         )
-        generated_images = 0.5 * (1.0 + generated_images)
+        generated_images = (
+            generated_images
+            * self.model.augmenter.layers[0].variance[None, None, None, :] ** 0.5
+            + self.model.augmenter.layers[0].mean[None, None, None, :]
+        )
         return tf.clip_by_value(generated_images, 0.0, 1.0)
 
     def train_step(self, images):
@@ -286,7 +288,10 @@ class DiffusionModel(keras.Model):
         self.noise_loss_tracker.update_state(noise_loss)
         self.image_loss_tracker.update_state(image_loss)
 
-        images = 0.5 * (1.0 + images)
+        images = (
+            images * self.model.augmenter.layers[0].variance[None, None, None, :] ** 0.5
+            + self.model.augmenter.layers[0].mean[None, None, None, :]
+        )
         generated_images = self.generate(
             self.batch_size,
             diffusion_steps=self.kid_diffusion_steps,
