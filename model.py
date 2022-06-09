@@ -49,6 +49,12 @@ class DiffusionModel(keras.Model):
     def metrics(self):
         return [self.noise_loss_tracker, self.image_loss_tracker, self.kid]
 
+    def denormalize(self, images):
+        images = self.augmenter.layers[0].mean + (
+            images * self.augmenter.layers[0].variance ** 0.5
+        )
+        return tf.clip_by_value(images, 0.0, 1.0)
+
     def noise_schedule(self, diffusion_times):
         start_snr = tf.exp(self.start_log_snr)
         end_snr = tf.exp(self.end_log_snr)
@@ -227,12 +233,7 @@ class DiffusionModel(keras.Model):
             variance_preserving,
             second_order_alpha,
         )
-        generated_images = (
-            generated_images
-            * self.augmenter.layers[0].variance[None, None, None, :] ** 0.5
-            + self.augmenter.layers[0].mean[None, None, None, :]
-        )
-        return tf.clip_by_value(generated_images, 0.0, 1.0)
+        return self.denormalize(generated_images)
 
     def train_step(self, images):
         images = self.augmenter(images, training=True)
@@ -288,10 +289,7 @@ class DiffusionModel(keras.Model):
         self.noise_loss_tracker.update_state(noise_loss)
         self.image_loss_tracker.update_state(image_loss)
 
-        images = (
-            images * self.augmenter.layers[0].variance[None, None, None, :] ** 0.5
-            + self.augmenter.layers[0].mean[None, None, None, :]
-        )
+        images = self.denormalize(images)
         generated_images = self.generate(
             self.batch_size,
             diffusion_steps=self.kid_diffusion_steps,
