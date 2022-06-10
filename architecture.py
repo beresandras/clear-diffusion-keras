@@ -99,6 +99,6 @@ def get_network(image_size, widths, block_depth):
         x = UpBlock(block_depth, width)([x, skips])
 
     x = layers.Concatenate()([x, skips.pop()])
-    x = layers.Conv2D(3, kernel_size=1)(x)
+    x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
 
     return keras.Model([images, noise_rates], x, name="residual_unet")
