@@ -14,9 +14,10 @@ class DiffusionModel(keras.Model):
         network,
         batch_size,
         ema,
+        output_type,
+        schedule_type,
         start_log_snr,
         end_log_snr,
-        schedule_type,
         kid_image_size,
         kid_diffusion_steps,
     ):
@@ -30,30 +31,68 @@ class DiffusionModel(keras.Model):
         self.image_size = network.input_shape[0][1]
         self.batch_size = batch_size
         self.ema = ema
+        self.output_type = output_type
+        self.schedule_type = schedule_type
         self.start_log_snr = start_log_snr
         self.end_log_snr = end_log_snr
-        self.schedule_type = schedule_type
         self.kid_image_size = kid_image_size
         self.kid_diffusion_steps = kid_diffusion_steps
 
     def compile(self, **kwargs):
         super().compile(**kwargs)
 
-        self.noise_loss_tracker = keras.metrics.Mean(name="n_loss")
+        self.velocity_loss_tracker = keras.metrics.Mean(name="v_loss")
         self.image_loss_tracker = keras.metrics.Mean(name="i_loss")
+        self.noise_loss_tracker = keras.metrics.Mean(name="n_loss")
         self.kid = KID(
             input_shape=self.network.output_shape[1:], image_size=self.kid_image_size
         )
 
     @property
     def metrics(self):
-        return [self.noise_loss_tracker, self.image_loss_tracker, self.kid]
+        return [
+            self.velocity_loss_tracker,
+            self.image_loss_tracker,
+            self.noise_loss_tracker,
+            self.kid,
+        ]
 
     def denormalize(self, images):
         images = self.augmenter.layers[0].mean + (
             images * self.augmenter.layers[0].variance ** 0.5
         )
         return tf.clip_by_value(images, 0.0, 1.0)
+
+    def get_components(self, noisy_images, predictions, signal_rates, noise_rates):
+        if self.output_type == "velocity":
+            pred_velocities = predictions
+            pred_images = (
+                noisy_images * signal_rates ** 0.5
+                - pred_velocities * noise_rates ** 0.5
+            )
+            pred_noises = (
+                noisy_images * noise_rates ** 0.5
+                + pred_velocities * signal_rates ** 0.5
+            )
+        elif self.output_type == "signal":
+            pred_images = predictions
+            pred_noises = noise_rates ** -0.5 * (
+                noisy_images - signal_rates ** 0.5 * pred_images
+            )
+            pred_velocities = noise_rates ** -0.5 * (
+                signal_rates ** 0.5 * noisy_images - pred_images
+            )
+        elif self.output_type == "noise":
+            pred_noises = predictions
+            pred_images = signal_rates ** -0.5 * (
+                noisy_images - noise_rates ** 0.5 * pred_noises
+            )
+            pred_velocities = signal_rates ** -0.5 * (
+                pred_noises - noise_rates ** 0.5 * noisy_images
+            )
+        else:
+            raise NotImplementedError
+        return pred_velocities, pred_images, pred_noises
 
     def noise_schedule(self, diffusion_times):
         start_snr = tf.exp(self.start_log_snr)
@@ -108,55 +147,6 @@ class DiffusionModel(keras.Model):
         signal_rates = 1.0 - noise_rates
         return signal_rates, noise_rates
 
-    def denoise(
-        self,
-        noisy_images,
-        signal_rates,
-        noise_rates,
-        training,
-        # only needed for second order denoising:
-        second_order_alpha=None,
-        diffusion_times=None,
-        step_size=None,
-    ):
-        if training:
-            network = self.network
-        else:
-            network = self.ema_network
-
-        pred_noises = network([noisy_images, noise_rates], training=training)
-        pred_images = signal_rates ** -0.5 * (
-            noisy_images - noise_rates ** 0.5 * pred_noises
-        )
-
-        if second_order_alpha is not None:
-            # use first estimate to sample alpha steps away
-            next_signal_rates, next_noise_rates = self.noise_schedule(
-                diffusion_times - second_order_alpha * step_size
-            )
-            next_noisy_images = (
-                next_signal_rates ** 0.5 * pred_images
-                + next_noise_rates ** 0.5 * pred_noises
-            )
-            next_pred_noises = network(
-                [next_noisy_images, next_noise_rates], training=training
-            )
-
-            # linearly combine the two estimates
-            pred_noises = (
-                1.0 - 1.0 / (2.0 * second_order_alpha)
-            ) * pred_noises + 1.0 / (2.0 * second_order_alpha) * next_pred_noises
-            pred_images = signal_rates ** -0.5 * (
-                noisy_images - noise_rates ** 0.5 * pred_noises
-            )
-
-        # pred_images = tf.clip_by_value(pred_images, -1.0, 1.0)
-        # pred_noises = noise_rates ** -0.5 * (
-        #     noisy_images - signal_rates ** 0.5 * pred_images
-        # )
-
-        return pred_images, pred_noises
-
     def diffusion_process(
         self,
         initial_noise,
@@ -171,23 +161,38 @@ class DiffusionModel(keras.Model):
         noisy_images = initial_noise
         for step in range(diffusion_steps):
             diffusion_times = tf.ones((batch_size, 1, 1, 1)) - step * step_size
-            next_diffusion_times = diffusion_times - step_size
 
             signal_rates, noise_rates = self.noise_schedule(diffusion_times)
+            predictions = self.ema_network([noisy_images, noise_rates], training=False)
+            # pred_images = tf.clip_by_value(pred_images, -1.0, 1.0)
+            _, pred_images, pred_noises = self.get_components(
+                noisy_images, predictions, signal_rates, noise_rates
+            )
+
+            if second_order_alpha is not None:
+                # use first estimate to sample alpha steps away
+                alpha_signal_rates, alpha_noise_rates = self.noise_schedule(
+                    diffusion_times - second_order_alpha * step_size
+                )
+                alpha_noisy_images = (
+                    alpha_signal_rates ** 0.5 * pred_images
+                    + alpha_noise_rates ** 0.5 * pred_noises
+                )
+                alpha_predictions = self.ema_network(
+                    [alpha_noisy_images, alpha_noise_rates], training=False
+                )
+
+                # linearly combine the two estimates
+                predictions = (
+                    1.0 - 1.0 / (2.0 * second_order_alpha)
+                ) * predictions + 1.0 / (2.0 * second_order_alpha) * alpha_predictions
+                _, pred_images, pred_noises = self.get_components(
+                    noisy_images, predictions, signal_rates, noise_rates
+                )
+
             next_signal_rates, next_noise_rates = self.noise_schedule(
-                next_diffusion_times
+                diffusion_times - step_size
             )
-
-            pred_images, pred_noises = self.denoise(
-                noisy_images,
-                signal_rates,
-                noise_rates,
-                training=False,
-                second_order_alpha=second_order_alpha,
-                diffusion_times=diffusion_times,
-                step_size=step_size,
-            )
-
             if stochastic:
                 sample_noise_rates = (1.0 - signal_rates / next_signal_rates) * (
                     next_noise_rates / noise_rates
@@ -237,29 +242,43 @@ class DiffusionModel(keras.Model):
 
     def train_step(self, images):
         images = self.augmenter(images, training=True)
-
         noises = tf.random.normal(
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
+
         diffusion_times = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
         signal_rates, noise_rates = self.noise_schedule(diffusion_times)
+
         noisy_images = signal_rates ** 0.5 * images + noise_rates ** 0.5 * noises
+        velocities = -(noise_rates ** 0.5) * images + signal_rates ** 0.5 * noises
 
         with tf.GradientTape() as tape:
-            pred_images, pred_noises = self.denoise(
-                noisy_images, signal_rates, noise_rates, training=True
+            predictions = self.network([noisy_images, noise_rates], training=True)
+            pred_velocities, pred_images, pred_noises = self.get_components(
+                noisy_images, predictions, signal_rates, noise_rates
             )
 
-            noise_loss = self.loss(noises, pred_noises)
+            velocity_loss = self.loss(velocities, pred_velocities)
             image_loss = self.loss(images, pred_images)
+            noise_loss = self.loss(noises, pred_noises)
 
-        gradients = tape.gradient(noise_loss, self.network.trainable_weights)
+        if self.output_type == "velocity":
+            loss = velocity_loss
+        elif self.output_type == "signal":
+            loss = image_loss
+        elif self.output_type == "noise":
+            loss = noise_loss
+        else:
+            raise NotImplementedError
+
+        gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        self.noise_loss_tracker.update_state(noise_loss)
+        self.velocity_loss_tracker.update_state(velocity_loss)
         self.image_loss_tracker.update_state(image_loss)
+        self.noise_loss_tracker.update_state(noise_loss)
 
         for weight, ema_weight in zip(self.network.weights, self.ema_network.weights):
             ema_weight.assign(self.ema * ema_weight + (1 - self.ema) * weight)
@@ -269,25 +288,30 @@ class DiffusionModel(keras.Model):
 
     def test_step(self, images):
         images = self.augmenter(images, training=False)
-
         noises = tf.random.normal(
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
+
         diffusion_times = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
         signal_rates, noise_rates = self.noise_schedule(diffusion_times)
-        noisy_images = signal_rates ** 0.5 * images + noise_rates ** 0.5 * noises
 
-        pred_images, pred_noises = self.denoise(
-            noisy_images, signal_rates, noise_rates, training=False
+        noisy_images = signal_rates ** 0.5 * images + noise_rates ** 0.5 * noises
+        velocities = -(noise_rates ** 0.5) * images + signal_rates ** 0.5 * noises
+
+        predictions = self.ema_network([noisy_images, noise_rates], training=False)
+        pred_velocities, pred_images, pred_noises = self.get_components(
+            noisy_images, predictions, signal_rates, noise_rates
         )
 
-        noise_loss = self.loss(noises, pred_noises)
+        velocity_loss = self.loss(velocities, pred_velocities)
         image_loss = self.loss(images, pred_images)
+        noise_loss = self.loss(noises, pred_noises)
 
-        self.noise_loss_tracker.update_state(noise_loss)
+        self.velocity_loss_tracker.update_state(velocity_loss)
         self.image_loss_tracker.update_state(image_loss)
+        self.noise_loss_tracker.update_state(noise_loss)
 
         images = self.denormalize(images)
         generated_images = self.generate(
