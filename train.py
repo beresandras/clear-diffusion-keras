@@ -33,9 +33,10 @@ learning_rate = 1e-3
 weight_decay = 1e-4
 
 # sampling
+output_type = "velocity"
+schedule_type = "cosine"
 start_log_snr = 3.0
 end_log_snr = -7.0
-schedule_type = "cosine"
 
 # architecture
 widths = [32, 64, 96, 128]
@@ -58,9 +59,10 @@ model = DiffusionModel(
     ),
     batch_size=batch_size,
     ema=ema,
+    output_type=output_type,
+    schedule_type=schedule_type,
     start_log_snr=start_log_snr,
     end_log_snr=end_log_snr,
-    schedule_type=schedule_type,
     kid_image_size=kid_image_size,
     kid_diffusion_steps=kid_diffusion_steps,
 )
