@@ -48,6 +48,7 @@ def get_network(image_size, widths, block_depth):
                 residual = x
             else:
                 residual = layers.Conv2D(width, kernel_size=1)(x)
+            x = layers.BatchNormalization(center=False, scale=False)(x)
             x = layers.Conv2D(
                 width, kernel_size=3, padding="same", activation=keras.activations.swish
             )(x)

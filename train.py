@@ -33,7 +33,7 @@ learning_rate = 1e-3
 weight_decay = 1e-4
 
 # sampling
-output_type = "velocity"
+output_type = "noise"
 schedule_type = "cosine"
 start_log_snr = 3.0
 end_log_snr = -7.0

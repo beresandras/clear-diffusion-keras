@@ -27,9 +27,6 @@ class DiffusionModel(keras.Model):
         self.augmenter = augmenter
         self.network = network
         self.ema_network = keras.models.clone_model(network)
-        self.num_params = sum(
-            [tf.size(p, tf.float32) for p in self.network.trainable_weights]
-        )
 
         self.image_size = network.input_shape[0][1]
         self.batch_size = batch_size
@@ -277,12 +274,6 @@ class DiffusionModel(keras.Model):
             raise NotImplementedError
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
-        # tf.print(
-        #     " ",
-        #     tf.norm(tf.concat([tf.reshape(g, (-1,)) for g in gradients], axis=0))
-        #     / self.num_params,
-        # )
-        # gradients = tf.clip_by_global_norm(gradients, clip_norm=self.num_params)[0]
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
         self.velocity_loss_tracker.update_state(velocity_loss)
