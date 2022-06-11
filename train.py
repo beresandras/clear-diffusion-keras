@@ -22,8 +22,9 @@ from model import DiffusionModel
 # some datasets might be unavailable for download at times
 dataset_name = "oxford_flowers102"
 num_epochs = 50
+uncropped_image_size = 80
 image_size = 64
-kid_image_size = 75  # resolution of KID measurement (75/150/299)
+kid_image_size = 299  # resolution of KID measurement (75/150/299)
 kid_diffusion_steps = 5
 
 # optimization
@@ -35,7 +36,7 @@ weight_decay = 1e-4
 # sampling
 output_type = "noise"
 schedule_type = "cosine"
-start_log_snr = 3.0
+start_log_snr = 4.0
 end_log_snr = -7.0
 
 # architecture
@@ -45,13 +46,17 @@ block_depth = 2
 id = 0
 
 # load dataset
-train_dataset = prepare_dataset(dataset_name, "train", image_size, batch_size)
-val_dataset = prepare_dataset(dataset_name, "validation", image_size, batch_size)
+train_dataset = prepare_dataset(dataset_name, "train", uncropped_image_size, batch_size)
+val_dataset = prepare_dataset(
+    dataset_name, "validation", uncropped_image_size, batch_size
+)
 
 # create model
 model = DiffusionModel(
     id=id,
-    augmenter=get_augmenter(image_size=image_size),
+    augmenter=get_augmenter(
+        uncropped_image_size=uncropped_image_size, image_size=image_size
+    ),
     network=get_network(
         image_size=image_size,
         widths=widths,
@@ -84,9 +89,8 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     save_best_only=True,
 )
 
-model.augmenter.layers[0].adapt(train_dataset)
-
 # run training
+model.augmenter.layers[0].adapt(train_dataset)
 model.plot_images(epoch=0)
 model.fit(
     train_dataset,
