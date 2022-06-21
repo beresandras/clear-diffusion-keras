@@ -379,7 +379,7 @@ class DiffusionModel(keras.Model):
 
         return {m.name: m.result() for m in self.metrics}
 
-    def plot_images(self, epoch=-1, logs=None, num_rows=3, num_cols=6, num_plots=5):
+    def plot_images(self, epoch=-1, logs=None, num_rows=3, num_cols=6, num_plots=1):
         generated_images = self.generate(
             num_images=num_plots * num_rows * num_cols,
             diffusion_steps=plot_diffusion_steps,
