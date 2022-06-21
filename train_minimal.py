@@ -18,7 +18,7 @@ tf.get_logger().setLevel("WARN")  # suppress info-level logs
 
 # data
 dataset_repetitions = 10
-num_epochs = 50
+num_epochs = 40
 image_size = 64
 kid_image_size = 75
 kid_diffusion_steps = 5
@@ -54,9 +54,7 @@ def preprocess_image(data):
     )
 
     # resize and clip
-    image = tf.image.resize(
-        image, size=[image_size, image_size], method="bicubic", antialias=True
-    )
+    image = tf.image.resize(image, size=[image_size, image_size], antialias=True)
     return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 
 
@@ -75,8 +73,8 @@ def prepare_dataset(split):
 
 
 # load dataset
-train_dataset = prepare_dataset("train[:70%]+validation[:70%]+test[:70%]")
-val_dataset = prepare_dataset("train[70%:]+validation[70%:]+test[70%:]")
+train_dataset = prepare_dataset("train[:80%]+validation[:80%]+test[:80%]")
+val_dataset = prepare_dataset("train[80%:]+validation[80%:]+test[80%:]")
 
 
 class KID(keras.metrics.Metric):
@@ -92,9 +90,8 @@ class KID(keras.metrics.Metric):
         self.encoder = keras.Sequential(
             [
                 layers.InputLayer(input_shape=(image_size, image_size, 3)),
-                # preprocessing.Rescaling(255.0),
-                # preprocessing.Resizing(height=kid_image_size, width=kid_image_size),
-                layers.Lambda(self.resize_input),
+                layers.Rescaling(255.0),
+                layers.Resizing(height=kid_image_size, width=kid_image_size),
                 layers.Lambda(keras.applications.inception_v3.preprocess_input),
                 keras.applications.InceptionV3(
                     include_top=False,
@@ -105,16 +102,6 @@ class KID(keras.metrics.Metric):
             ],
             name="inception_encoder",
         )
-
-    def resize_input(self, images):
-        images = tf.image.resize(
-            images,
-            size=[kid_image_size, kid_image_size],
-            method="bicubic",
-            antialias=True,
-        )
-        images = tf.clip_by_value(images, 0.0, 1.0)
-        return images * 255.0
 
     def polynomial_kernel(self, features_1, features_2):
         feature_dimensions = tf.cast(tf.shape(features_1)[1], dtype=tf.float32)
