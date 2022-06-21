@@ -26,6 +26,7 @@ plot_diffusion_steps = 20
 
 # sampling
 min_signal_rate = 0.03
+max_signal_rate = 0.98
 
 # architecture
 embedding_dims = 32
@@ -74,8 +75,8 @@ def prepare_dataset(split):
 
 
 # load dataset
-train_dataset = prepare_dataset("train[:80%]+validation[:80%]+test[:80%]")
-val_dataset = prepare_dataset("train[80%:]+validation[80%:]+test[80%:]")
+train_dataset = prepare_dataset("train[:70%]+validation[:70%]+test[:70%]")
+val_dataset = prepare_dataset("train[70%:]+validation[70%:]+test[70%:]")
 
 
 class KID(keras.metrics.Metric):
@@ -265,8 +266,9 @@ class DiffusionModel(keras.Model):
         return tf.clip_by_value(images, 0.0, 1.0)
 
     def noise_schedule(self, diffusion_times):
+        min_angle = tf.acos(max_signal_rate)
         max_angle = tf.acos(min_signal_rate)
-        diffusion_angles = diffusion_times * max_angle
+        diffusion_angles = min_angle + diffusion_times * (max_angle - min_angle)
 
         signal_rates = tf.cos(diffusion_angles)
         noise_rates = tf.sin(diffusion_angles)
