@@ -25,8 +25,8 @@ kid_diffusion_steps = 5
 plot_diffusion_steps = 20
 
 # sampling
-min_signal_rate = 0.03
-max_signal_rate = 0.98
+min_signal_rate = 0.02
+max_signal_rate = 0.95
 
 # architecture
 embedding_dims = 32
@@ -175,7 +175,7 @@ def get_network():
                 width, kernel_size=3, padding="same", activation=keras.activations.swish
             )(x)
             x = layers.Conv2D(width, kernel_size=3, padding="same")(x)
-            x = layers.Add()([residual, x])
+            x = layers.Add()([x, residual])
             return x
 
         return forward
@@ -205,13 +205,13 @@ def get_network():
     images = keras.Input(shape=(image_size, image_size, 3))
     noise_rates = keras.Input(shape=(1, 1, 1))
 
+    e = EmbeddingLayer()(noise_rates)
+    e = layers.UpSampling2D(size=image_size, interpolation="nearest")(e)
+
     x = layers.Conv2D(widths[0], kernel_size=1)(images)
-    skips = [x]
+    x = layers.Concatenate()([x, e])
 
-    n = EmbeddingLayer()(noise_rates)
-    n = layers.UpSampling2D(size=image_size, interpolation="nearest")(n)
-    x = layers.Concatenate()([x, n])
-
+    skips = []
     for width in widths[:-1]:
         x = DownBlock(block_depth, width)([x, skips])
 
@@ -221,7 +221,6 @@ def get_network():
     for width in reversed(widths[:-1]):
         x = UpBlock(block_depth, width)([x, skips])
 
-    x = layers.Concatenate()([x, skips.pop()])
     x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
 
     return keras.Model([images, noise_rates], x, name="residual_unet")
@@ -253,9 +252,10 @@ class DiffusionModel(keras.Model):
         return tf.clip_by_value(images, 0.0, 1.0)
 
     def noise_schedule(self, diffusion_times):
-        min_angle = tf.acos(max_signal_rate)
-        max_angle = tf.acos(min_signal_rate)
-        diffusion_angles = min_angle + diffusion_times * (max_angle - min_angle)
+        start_angle = tf.acos(max_signal_rate)
+        end_angle = tf.acos(min_signal_rate)
+
+        diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
 
         signal_rates = tf.cos(diffusion_angles)
         noise_rates = tf.sin(diffusion_angles)
