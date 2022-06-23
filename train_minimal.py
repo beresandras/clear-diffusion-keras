@@ -30,6 +30,7 @@ max_signal_rate = 0.95
 
 # architecture
 embedding_dims = 32
+embedding_max_frequency = 1000.0
 widths = [32, 64, 96, 128]
 block_depth = 2
 
@@ -141,30 +142,24 @@ class KID(keras.metrics.Metric):
 
 
 def get_network():
-    def EmbeddingLayer(min_frequency=1.0, max_frequency=1000.0):
-        def sinusoidal_embedding(x):
-            frequencies = tf.exp(
-                tf.linspace(
-                    tf.math.log(min_frequency),
-                    tf.math.log(max_frequency),
-                    embedding_dims // 2,
-                )
+    def sinusoidal_embedding(x):
+        embedding_min_frequency = 1.0
+        frequencies = tf.exp(
+            tf.linspace(
+                tf.math.log(embedding_min_frequency),
+                tf.math.log(embedding_max_frequency),
+                embedding_dims // 2,
             )
-            angular_speeds = 2.0 * math.pi * frequencies
-            embeddings = tf.concat(
-                [tf.sin(angular_speeds * x), tf.cos(angular_speeds * x)],
-                axis=3,
-            )
-            return embeddings
-
-        def forward(x):
-            x = layers.Lambda(sinusoidal_embedding)(x)
-            return x
-
-        return forward
+        )
+        angular_speeds = 2.0 * math.pi * frequencies
+        embeddings = tf.concat(
+            [tf.sin(angular_speeds * x), tf.cos(angular_speeds * x)],
+            axis=3,
+        )
+        return embeddings
 
     def ResidualBlock(width):
-        def forward(x):
+        def apply(x):
             input_width = x.shape[3]
             if input_width == width:
                 residual = x
@@ -178,10 +173,10 @@ def get_network():
             x = layers.Add()([x, residual])
             return x
 
-        return forward
+        return apply
 
-    def DownBlock(block_depth, width):
-        def forward(x):
+    def DownBlock(width):
+        def apply(x):
             x, skips = x
             for _ in range(block_depth):
                 x = ResidualBlock(width)(x)
@@ -189,10 +184,10 @@ def get_network():
             x = layers.AveragePooling2D(pool_size=2)(x)
             return x
 
-        return forward
+        return apply
 
-    def UpBlock(block_depth, width):
-        def forward(x):
+    def UpBlock(width):
+        def apply(x):
             x, skips = x
             x = layers.UpSampling2D(size=2, interpolation="bilinear")(x)
             for _ in range(block_depth):
@@ -200,12 +195,12 @@ def get_network():
                 x = ResidualBlock(width)(x)
             return x
 
-        return forward
+        return apply
 
     images = keras.Input(shape=(image_size, image_size, 3))
-    noise_rates = keras.Input(shape=(1, 1, 1))
+    noise_variances = keras.Input(shape=(1, 1, 1))
 
-    e = EmbeddingLayer()(noise_rates)
+    e = layers.Lambda(sinusoidal_embedding)(noise_variances)
     e = layers.UpSampling2D(size=image_size, interpolation="nearest")(e)
 
     x = layers.Conv2D(widths[0], kernel_size=1)(images)
@@ -213,17 +208,17 @@ def get_network():
 
     skips = []
     for width in widths[:-1]:
-        x = DownBlock(block_depth, width)([x, skips])
+        x = DownBlock(width)([x, skips])
 
     for _ in range(block_depth):
         x = ResidualBlock(widths[-1])(x)
 
     for width in reversed(widths[:-1]):
-        x = UpBlock(block_depth, width)([x, skips])
+        x = UpBlock(width)([x, skips])
 
     x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
 
-    return keras.Model([images, noise_rates], x, name="residual_unet")
+    return keras.Model([images, noise_variances], x, name="residual_unet")
 
 
 class DiffusionModel(keras.Model):
@@ -268,7 +263,8 @@ class DiffusionModel(keras.Model):
         else:
             network = self.ema_network
 
-        pred_noises = network([noisy_images, noise_rates], training=training)
+        noise_variances = noise_rates ** 2
+        pred_noises = network([noisy_images, noise_variances], training=training)
         pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
 
         return pred_noises, pred_images
@@ -368,24 +364,31 @@ class DiffusionModel(keras.Model):
 
         return {m.name: m.result() for m in self.metrics}
 
-    def plot_images(self, epoch=-1, logs=None, num_rows=3, num_cols=6, num_plots=1):
+    def plot_images(self, epoch=-1, logs=None, num_rows=4, num_cols=8, num_plots=1):
+        plot_image_size = 2 * image_size
         generated_images = self.generate(
             num_images=num_plots * num_rows * num_cols,
             diffusion_steps=plot_diffusion_steps,
             plot=True,
         )
+        generated_images = tf.image.resize(
+            generated_images, (plot_image_size, plot_image_size), method="nearest"
+        )
+        generated_images = tf.reshape(
+            generated_images,
+            (num_plots, num_rows, num_cols, plot_image_size, plot_image_size, 3),
+        )
+        generated_images = tf.transpose(generated_images, (0, 1, 3, 2, 4, 5))
+        generated_images = tf.reshape(
+            generated_images,
+            (num_plots, num_rows * plot_image_size, num_cols * plot_image_size, 3),
+        )
 
         for plot in range(num_plots):
-            plt.figure(figsize=(num_cols * 2.0, num_rows * 2.0))
-            for row in range(num_rows):
-                for col in range(num_cols):
-                    index = row * num_cols + col
-                    plt.subplot(num_rows, num_cols, index + 1)
-                    plt.imshow(generated_images[plot * num_rows * num_cols + index])
-                    plt.axis("off")
-            plt.tight_layout()
-            plt.savefig("images/gif/{}_{}.png".format(plot, epoch + 1))
-            plt.close()
+            plt.imsave(
+                "images/gif/{}_{}.png".format(plot, epoch + 1),
+                generated_images[plot].numpy(),
+            )
 
 
 # create and compile the model
