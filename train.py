@@ -21,26 +21,33 @@ from model import DiffusionModel
 # data
 # some datasets might be unavailable for download at times
 dataset_name = "oxford_flowers102"
-num_epochs = 50
+epochs = {
+    "caltech_birds2011": 40,
+    "oxford_flowers102": 40,
+    "celeb_a": 20,
+    "cifar10": 80,
+}
+num_epochs = epochs[dataset_name]
 uncropped_image_size = 64
 image_size = 64
 kid_image_size = 299  # resolution of KID measurement (75/150/299)
 kid_diffusion_steps = 5
 
 # optimization
+prediction_type = "noise"
+loss_type = "noise"
 batch_size = 64
 ema = 0.999
 learning_rate = 1e-3
 weight_decay = 1e-4
 
 # sampling
-output_type = "noise"
 schedule_type = "cosine"
 start_log_snr = 2.5
 end_log_snr = -7.5
 
 # architecture
-noise_embedding_max_frequency = 128
+noise_embedding_max_frequency = 200
 noise_embedding_dims = 32
 image_embedding_dims = 64
 widths = [32, 64, 96, 128]
@@ -68,9 +75,10 @@ model = DiffusionModel(
         widths=widths,
         block_depth=block_depth,
     ),
+    prediction_type=prediction_type,
+    loss_type=loss_type,
     batch_size=batch_size,
     ema=ema,
-    output_type=output_type,
     schedule_type=schedule_type,
     start_log_snr=start_log_snr,
     end_log_snr=end_log_snr,
@@ -110,7 +118,7 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
-model.plot_images(num_rows=4, diffusion_steps=20, stochastic=False)
-model.plot_images(num_rows=4, diffusion_steps=200, stochastic=True)
+model.plot_images(diffusion_steps=20, stochastic=False)
+model.plot_images(diffusion_steps=200, stochastic=True)
 
 # model.evaluate(val_dataset)

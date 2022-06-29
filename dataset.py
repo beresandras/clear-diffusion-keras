@@ -113,8 +113,8 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
     split_names = {
         "caltech_birds2011": ["train", "test"],
         "oxford_flowers102": [
-            "train[:70%]+validation[:70%]+test[:70%]",
-            "train[70%:]+validation[70%:]+test[70%:]",
+            "train[:80%]+validation[:80%]+test[:80%]",
+            "train[80%:]+validation[80%:]+test[80%:]",
         ],
         "celeb_a": ["train", "validation"],
         "cifar10": ["train", "test"],
@@ -123,7 +123,7 @@ def prepare_dataset(dataset_name, split, image_size, batch_size):
 
     repetitions = {
         "caltech_birds2011": [10, 2],
-        "oxford_flowers102": [10, 5],
+        "oxford_flowers102": [10, 10],
         "celeb_a": [1, 1],
         "cifar10": [1, 1],
     }

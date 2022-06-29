@@ -12,9 +12,10 @@ class DiffusionModel(keras.Model):
         id,
         augmenter,
         network,
+        prediction_type,
+        loss_type,
         batch_size,
         ema,
-        output_type,
         schedule_type,
         start_log_snr,
         end_log_snr,
@@ -29,9 +30,10 @@ class DiffusionModel(keras.Model):
         self.ema_network = keras.models.clone_model(network)
 
         self.image_size = network.input_shape[0][1]
+        self.prediction_type = prediction_type
+        self.loss_type = loss_type
         self.batch_size = batch_size
         self.ema = ema
-        self.output_type = output_type
         self.schedule_type = schedule_type
         self.start_log_snr = start_log_snr
         self.end_log_snr = end_log_snr
@@ -63,8 +65,13 @@ class DiffusionModel(keras.Model):
         )
         return tf.clip_by_value(images, 0.0, 1.0)
 
-    def get_components(self, noisy_images, predictions, signal_rates, noise_rates):
-        if self.output_type == "velocity":
+    def get_components(
+        self, noisy_images, predictions, signal_rates, noise_rates, prediction_type=None
+    ):
+        if prediction_type is None:
+            prediction_type = self.prediction_type
+
+        if prediction_type == "velocity":
             pred_velocities = predictions
             pred_images = (
                 noisy_images * signal_rates ** 0.5
@@ -74,7 +81,7 @@ class DiffusionModel(keras.Model):
                 noisy_images * noise_rates ** 0.5
                 + pred_velocities * signal_rates ** 0.5
             )
-        elif self.output_type == "signal":
+        elif prediction_type == "signal":
             pred_images = predictions
             pred_noises = noise_rates ** -0.5 * (
                 noisy_images - signal_rates ** 0.5 * pred_images
@@ -82,7 +89,7 @@ class DiffusionModel(keras.Model):
             pred_velocities = noise_rates ** -0.5 * (
                 signal_rates ** 0.5 * noisy_images - pred_images
             )
-        elif self.output_type == "noise":
+        elif prediction_type == "noise":
             pred_noises = predictions
             pred_images = signal_rates ** -0.5 * (
                 noisy_images - noise_rates ** 0.5 * pred_noises
@@ -181,13 +188,24 @@ class DiffusionModel(keras.Model):
                 alpha_predictions = self.ema_network(
                     [alpha_noisy_images, alpha_noise_rates ** 2], training=False
                 )
+                # calculate noise estimate from prediction
+                _, _, alpha_pred_noises = self.get_components(
+                    alpha_noisy_images,
+                    alpha_predictions,
+                    alpha_signal_rates,
+                    alpha_noise_rates,
+                )
 
-                # linearly combine the two estimates
-                predictions = (
+                # linearly combine the two noise estimates
+                pred_noises = (
                     1.0 - 1.0 / (2.0 * second_order_alpha)
-                ) * predictions + 1.0 / (2.0 * second_order_alpha) * alpha_predictions
+                ) * pred_noises + 1.0 / (2.0 * second_order_alpha) * alpha_pred_noises
                 _, pred_images, pred_noises = self.get_components(
-                    noisy_images, predictions, signal_rates, noise_rates
+                    noisy_images,
+                    pred_noises,
+                    signal_rates,
+                    noise_rates,
+                    prediction_type="noise",
                 )
 
             next_signal_rates, next_noise_rates = self.diffusion_schedule(
@@ -257,11 +275,11 @@ class DiffusionModel(keras.Model):
             image_loss = self.loss(images, pred_images)
             noise_loss = self.loss(noises, pred_noises)
 
-        if self.output_type == "velocity":
+        if self.loss_type == "velocity":
             loss = velocity_loss
-        elif self.output_type == "signal":
+        elif self.loss_type == "signal":
             loss = image_loss
-        elif self.output_type == "noise":
+        elif self.loss_type == "noise":
             loss = noise_loss
         else:
             raise NotImplementedError
@@ -322,7 +340,7 @@ class DiffusionModel(keras.Model):
         self,
         epoch=None,
         logs=None,
-        num_rows=4,
+        num_rows=3,
         num_cols=8,
         diffusion_steps=20,
         stochastic=False,
