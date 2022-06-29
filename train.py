@@ -47,7 +47,7 @@ start_log_snr = 2.5
 end_log_snr = -7.5
 
 # architecture
-noise_embedding_max_frequency = 200
+noise_embedding_max_frequency = 200.0
 noise_embedding_dims = 32
 image_embedding_dims = 64
 widths = [32, 64, 96, 128]
