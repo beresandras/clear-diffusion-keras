@@ -7,9 +7,7 @@ from tensorflow.keras import layers
 def get_augmenter(uncropped_image_size, image_size):
     return keras.Sequential(
         [
-            layers.InputLayer(
-                input_shape=(uncropped_image_size, uncropped_image_size, 3)
-            ),
+            keras.Input(shape=(uncropped_image_size, uncropped_image_size, 3)),
             layers.Normalization(),
             layers.RandomFlip(mode="horizontal"),
             layers.RandomCrop(height=image_size, width=image_size),

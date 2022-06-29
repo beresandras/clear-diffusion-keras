@@ -17,7 +17,7 @@ class KID(keras.metrics.Metric):
         # a pretrained InceptionV3 is used without its classification layer
         self.encoder = keras.Sequential(
             [
-                layers.InputLayer(input_shape=input_shape),
+                keras.Input(shape=input_shape),
                 layers.Lambda(self.preprocess_input),
                 keras.applications.InceptionV3(
                     include_top=False,
