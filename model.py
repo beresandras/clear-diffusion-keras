@@ -162,7 +162,9 @@ class DiffusionModel(keras.Model):
             diffusion_times = tf.ones((batch_size, 1, 1, 1)) - step * step_size
 
             signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
-            predictions = self.ema_network([noisy_images, noise_rates], training=False)
+            predictions = self.ema_network(
+                [noisy_images, noise_rates ** 2], training=False
+            )
             # pred_images = tf.clip_by_value(pred_images, -1.0, 1.0)
             _, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
@@ -177,7 +179,7 @@ class DiffusionModel(keras.Model):
                     alpha_signal_rates * pred_images + alpha_noise_rates * pred_noises
                 )
                 alpha_predictions = self.ema_network(
-                    [alpha_noisy_images, alpha_noise_rates], training=False
+                    [alpha_noisy_images, alpha_noise_rates ** 2], training=False
                 )
 
                 # linearly combine the two estimates
@@ -246,7 +248,7 @@ class DiffusionModel(keras.Model):
         velocities = -noise_rates * images + signal_rates * noises
 
         with tf.GradientTape() as tape:
-            predictions = self.network([noisy_images, noise_rates], training=True)
+            predictions = self.network([noisy_images, noise_rates ** 2], training=True)
             pred_velocities, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
             )
@@ -291,7 +293,7 @@ class DiffusionModel(keras.Model):
         noisy_images = signal_rates * images + noise_rates * noises
         velocities = -noise_rates * images + signal_rates * noises
 
-        predictions = self.ema_network([noisy_images, noise_rates], training=False)
+        predictions = self.ema_network([noisy_images, noise_rates ** 2], training=False)
         pred_velocities, pred_images, pred_noises = self.get_components(
             noisy_images, predictions, signal_rates, noise_rates
         )
@@ -349,8 +351,11 @@ class DiffusionModel(keras.Model):
             (num_rows * plot_image_size, num_cols * plot_image_size, 3),
         )
         plt.imsave(
-            "images/{}_{}_{:.3f}.png".format(
-                self.id, "final" if epoch is None else epoch + 1, self.kid.result()
+            "images/{}_{}_{}_{:.3f}.png".format(
+                self.id,
+                "final" if epoch is None else epoch + 1,
+                "s" if stochastic else "d",
+                self.kid.result(),
             ),
             generated_images.numpy(),
         )

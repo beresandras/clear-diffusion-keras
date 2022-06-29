@@ -16,13 +16,21 @@ def get_augmenter(uncropped_image_size, image_size):
     )
 
 
-def get_network(image_size, widths, block_depth):
-    def EmbeddingLayer(embedding_dims, min_frequency=1.0, max_frequency=1000.0):
+def get_network(
+    image_size,
+    noise_embedding_max_frequency,
+    noise_embedding_dims,
+    image_embedding_dims,
+    widths,
+    block_depth,
+):
+    def EmbeddingLayer(embedding_max_frequency, embedding_dims):
         def sinusoidal_embedding(x):
+            embedding_min_frequency = 1.0
             frequencies = tf.exp(
                 tf.linspace(
-                    tf.math.log(min_frequency),
-                    tf.math.log(max_frequency),
+                    tf.math.log(embedding_min_frequency),
+                    tf.math.log(embedding_max_frequency),
                     embedding_dims // 2,
                 )
             )
@@ -82,12 +90,14 @@ def get_network(image_size, widths, block_depth):
         return forward
 
     images = keras.Input(shape=(image_size, image_size, 3))
-    noise_rates = keras.Input(shape=(1, 1, 1))
+    noise_powers = keras.Input(shape=(1, 1, 1))
 
-    x = layers.Conv2D(widths[0], kernel_size=1)(images)
+    x = layers.Conv2D(image_embedding_dims, kernel_size=1)(images)
     skips = [x]
 
-    n = EmbeddingLayer(widths[0])(noise_rates)
+    n = EmbeddingLayer(noise_embedding_max_frequency, noise_embedding_dims)(
+        noise_powers
+    )
     n = layers.UpSampling2D(size=image_size, interpolation="nearest")(n)
     x = layers.Concatenate()([x, n])
 
@@ -103,4 +113,4 @@ def get_network(image_size, widths, block_depth):
     x = layers.Concatenate()([x, skips.pop()])
     x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
 
-    return keras.Model([images, noise_rates], x, name="residual_unet")
+    return keras.Model([images, noise_powers], x, name="residual_unet")
