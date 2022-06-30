@@ -30,7 +30,7 @@ epochs = {
 num_epochs = epochs[dataset_name]
 uncropped_image_size = 64
 image_size = 64
-kid_image_size = 299  # resolution of KID measurement (75/150/299)
+kid_image_size = 75  # resolution of KID measurement (75/150/299)
 kid_diffusion_steps = 5
 
 # optimization
