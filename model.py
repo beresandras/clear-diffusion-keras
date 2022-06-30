@@ -73,30 +73,16 @@ class DiffusionModel(keras.Model):
 
         if prediction_type == "velocity":
             pred_velocities = predictions
-            pred_images = (
-                noisy_images * signal_rates ** 0.5
-                - pred_velocities * noise_rates ** 0.5
-            )
-            pred_noises = (
-                noisy_images * noise_rates ** 0.5
-                + pred_velocities * signal_rates ** 0.5
-            )
+            pred_images = signal_rates * noisy_images - noise_rates * pred_velocities
+            pred_noises = noise_rates * noisy_images + signal_rates * pred_velocities
         elif prediction_type == "signal":
             pred_images = predictions
-            pred_noises = noise_rates ** -0.5 * (
-                noisy_images - signal_rates ** 0.5 * pred_images
-            )
-            pred_velocities = noise_rates ** -0.5 * (
-                signal_rates ** 0.5 * noisy_images - pred_images
-            )
+            pred_noises = (noisy_images - signal_rates * pred_images) / noise_rates
+            pred_velocities = (signal_rates * noisy_images - pred_images) / noise_rates
         elif prediction_type == "noise":
             pred_noises = predictions
-            pred_images = signal_rates ** -0.5 * (
-                noisy_images - noise_rates ** 0.5 * pred_noises
-            )
-            pred_velocities = signal_rates ** -0.5 * (
-                pred_noises - noise_rates ** 0.5 * noisy_images
-            )
+            pred_images = (noisy_images - noise_rates * pred_noises) / signal_rates
+            pred_velocities = (pred_noises - noise_rates * noisy_images) / signal_rates
         else:
             raise NotImplementedError
         return pred_velocities, pred_images, pred_noises
