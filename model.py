@@ -145,7 +145,12 @@ class DiffusionModel(keras.Model):
         return signal_rates, noise_rates
 
     def diffusion_process(
-        self, initial_noise, diffusion_steps, stochastic, implicit, second_order_alpha
+        self,
+        initial_noise,
+        diffusion_steps,
+        stochastic,
+        variance_preserving,
+        second_order_alpha,
     ):
         batch_size = tf.shape(initial_noise)[0]
         step_size = 1.0 / diffusion_steps
@@ -210,7 +215,7 @@ class DiffusionModel(keras.Model):
                 sample_noises = tf.random.normal(
                     shape=(batch_size, self.image_size, self.image_size, 3)
                 )
-                if implicit:
+                if variance_preserving:
                     noisy_images += sample_noise_rates * sample_noises
                 else:
                     noisy_images += (
@@ -227,13 +232,22 @@ class DiffusionModel(keras.Model):
         return pred_images
 
     def generate(
-        self, num_images, diffusion_steps, stochastic, implicit, second_order_alpha
+        self,
+        num_images,
+        diffusion_steps,
+        stochastic,
+        variance_preserving,
+        second_order_alpha,
     ):
         initial_noise = tf.random.normal(
             shape=(num_images, self.image_size, self.image_size, 3)
         )
         generated_images = self.diffusion_process(
-            initial_noise, diffusion_steps, stochastic, implicit, second_order_alpha
+            initial_noise,
+            diffusion_steps,
+            stochastic,
+            variance_preserving,
+            second_order_alpha,
         )
         return self.denormalize(generated_images)
 
@@ -315,7 +329,7 @@ class DiffusionModel(keras.Model):
             self.batch_size,
             diffusion_steps=self.kid_diffusion_steps,
             stochastic=False,
-            implicit=False,
+            variance_preserving=False,
             second_order_alpha=None,
         )
         self.kid.update_state(images, generated_images)
@@ -330,18 +344,18 @@ class DiffusionModel(keras.Model):
         num_cols=8,
         diffusion_steps=20,
         stochastic=False,
-        implicit=False,
+        variance_preserving=False,
         second_order_alpha=None,
+        plot_image_size=128,
     ):
         generated_images = self.generate(
             num_rows * num_cols,
             diffusion_steps,
             stochastic,
-            implicit,
+            variance_preserving,
             second_order_alpha,
         )
 
-        plot_image_size = 2 * self.image_size
         generated_images = tf.image.resize(
             generated_images, (plot_image_size, plot_image_size), method="nearest"
         )
