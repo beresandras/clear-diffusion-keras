@@ -73,6 +73,7 @@ class DiffusionModel(keras.Model):
         ]
 
     def denormalize(self, images):
+        # convert the pixel values back to 0-1 range
         images = self.augmenter.layers[0].mean + (
             images * self.augmenter.layers[0].variance ** 0.5
         )
@@ -84,6 +85,7 @@ class DiffusionModel(keras.Model):
         if prediction_type is None:
             prediction_type = self.prediction_type
 
+        # calculate the other signal components using the network prediction
         if prediction_type == "velocity":
             pred_velocities = predictions
             pred_images = signal_rates * noisy_images - noise_rates * pred_velocities
@@ -98,6 +100,7 @@ class DiffusionModel(keras.Model):
             pred_velocities = (pred_noises - noise_rates * noisy_images) / signal_rates
         else:
             raise NotImplementedError
+
         return pred_velocities, pred_images, pred_noises
 
     def diffusion_schedule(self, diffusion_times):
@@ -151,8 +154,11 @@ class DiffusionModel(keras.Model):
         else:
             raise NotImplementedError("Unsupported sampling schedule.")
 
+        # the signal and noise power will always sum to one
         signal_powers = 1.0 - noise_powers
 
+        # the rates are the square roots of the powers
+        # variance -> standard deviation
         signal_rates = signal_powers ** 0.5
         noise_rates = noise_powers ** 0.5
         return signal_rates, noise_rates
@@ -167,6 +173,8 @@ class DiffusionModel(keras.Model):
         second_order_alpha,
     ):
         assert num_multisteps <= 5, "Maximum 5 multisteps are supported."
+
+        # noise -> images -> denormalized images
         initial_noise = tf.random.normal(
             shape=(num_images, self.image_size, self.image_size, 3)
         )
@@ -192,19 +200,24 @@ class DiffusionModel(keras.Model):
         batch_size = tf.shape(initial_noise)[0]
         step_size = 1.0 / diffusion_steps
 
+        # at the first sampling step, the "noisy image" is pure noise
         noisy_images = initial_noise
         prev_pred_noises = []  # only required for multistep sampling
         for step in range(diffusion_steps):
             diffusion_times = tf.ones((batch_size, 1, 1, 1)) - step * step_size
 
             signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
+            # predict one component of the noisy images with the network
+            # exponential moving average weights are used for inference
             predictions = self.ema_network(
                 [noisy_images, noise_rates ** 2], training=False
             )
+            # calculate the other components using it
             _, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
             )
 
+            # optional multistep sampling
             if num_multisteps > 1:
                 prev_pred_noises.append(pred_noises)
                 pred_images, pred_noises = self.multistep_correction(
@@ -215,6 +228,7 @@ class DiffusionModel(keras.Model):
                     num_multisteps,
                 )
 
+            # optional second order sampling
             if second_order_alpha is not None:
                 pred_images, pred_noises = self.second_order_correction(
                     diffusion_times,
@@ -231,6 +245,7 @@ class DiffusionModel(keras.Model):
                 diffusion_times - step_size
             )
             if stochasticity > 0.0:
+                # optional stochastic sampling
                 noisy_images = self.get_stochastic_noisy_image(
                     signal_rates,
                     noise_rates,
@@ -242,9 +257,11 @@ class DiffusionModel(keras.Model):
                     variance_preserving,
                 )
             else:
+                # remix the predicted components using the next signal and noise rates
                 noisy_images = (
                     next_signal_rates * pred_images + next_noise_rates * pred_noises
                 )
+            # this new noisy image will be used in the next step
 
         return pred_images
 
@@ -265,7 +282,7 @@ class DiffusionModel(keras.Model):
             * (next_noise_rates / noise_rates)
         )
 
-        # reduce the weight of the predicted noise component
+        # reduce the power of the predicted noise component
         noisy_images = (
             next_signal_rates * pred_images
             + (next_noise_rates ** 2 - sample_noise_rates ** 2) ** 0.5 * pred_noises
@@ -279,6 +296,7 @@ class DiffusionModel(keras.Model):
             noisy_images += (
                 sample_noise_rates * (noise_rates / next_noise_rates) * sample_noises
             )
+
         return noisy_images
 
     def multistep_correction(
@@ -347,25 +365,30 @@ class DiffusionModel(keras.Model):
         return pred_images, pred_noises
 
     def train_step(self, images):
+        # normalize images to have standard deviation of 1, like the noises
         images = self.augmenter(images, training=True)
         noises = tf.random.normal(
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
 
+        # sample uniform random diffusion times
         diffusion_times = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
         signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
 
+        # mix the images with noises accordingly
         noisy_images = signal_rates * images + noise_rates * noises
         velocities = -noise_rates * images + signal_rates * noises
 
         with tf.GradientTape() as tape:
+            # train the network to separate noisy images to their components
             predictions = self.network([noisy_images, noise_rates ** 2], training=True)
             pred_velocities, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
             )
 
+            # one of the losses is used for training, the others are tracked as metrics
             velocity_loss = self.loss(velocities, pred_velocities)
             image_loss = self.loss(images, pred_images)
             noise_loss = self.loss(noises, pred_noises)
@@ -386,6 +409,7 @@ class DiffusionModel(keras.Model):
         self.image_loss_tracker.update_state(image_loss)
         self.noise_loss_tracker.update_state(noise_loss)
 
+        # track the exponential moving averages of weights
         for weight, ema_weight in zip(self.network.weights, self.ema_network.weights):
             ema_weight.assign(self.ema * ema_weight + (1 - self.ema) * weight)
 
@@ -393,19 +417,23 @@ class DiffusionModel(keras.Model):
         return {m.name: m.result() for m in self.metrics[:-1]}
 
     def test_step(self, images):
+        # normalize images to have standard deviation of 1, like the noises
         images = self.augmenter(images, training=False)
         noises = tf.random.normal(
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
 
+        # sample uniform random diffusion times
         diffusion_times = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
         signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
 
+        # mix the images with noises accordingly
         noisy_images = signal_rates * images + noise_rates * noises
         velocities = -noise_rates * images + signal_rates * noises
 
+        # use the network to separate noisy images to their components
         predictions = self.ema_network([noisy_images, noise_rates ** 2], training=False)
         pred_velocities, pred_images, pred_noises = self.get_components(
             noisy_images, predictions, signal_rates, noise_rates
@@ -419,6 +447,8 @@ class DiffusionModel(keras.Model):
         self.image_loss_tracker.update_state(image_loss)
         self.noise_loss_tracker.update_state(noise_loss)
 
+        # measure KID between real and generated images
+        # this is computationally demanding, kid_diffusion_steps has to be small
         images = self.denormalize(images)
         generated_images = self.generate(
             self.batch_size,
@@ -445,6 +475,7 @@ class DiffusionModel(keras.Model):
         second_order_alpha=None,
         plot_image_size=128,
     ):
+        # plot random generated images for visual evaluation of generation quality
         generated_images = self.generate(
             num_rows * num_cols,
             diffusion_steps,
@@ -454,6 +485,7 @@ class DiffusionModel(keras.Model):
             second_order_alpha,
         )
 
+        # organize generated images into a grid
         generated_images = tf.image.resize(
             generated_images, (plot_image_size, plot_image_size), method="nearest"
         )
