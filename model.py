@@ -150,12 +150,14 @@ class DiffusionModel(keras.Model):
         diffusion_steps,
         stochastic,
         variance_preserving,
+        multistep,
         second_order_alpha,
     ):
         batch_size = tf.shape(initial_noise)[0]
         step_size = 1.0 / diffusion_steps
 
         noisy_images = initial_noise
+        old_pred_noises = None
         for step in range(diffusion_steps):
             diffusion_times = tf.ones((batch_size, 1, 1, 1)) - step * step_size
 
@@ -163,10 +165,25 @@ class DiffusionModel(keras.Model):
             predictions = self.ema_network(
                 [noisy_images, noise_rates ** 2], training=False
             )
-            # pred_images = tf.clip_by_value(pred_images, -1.0, 1.0)
             _, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
             )
+
+            if multistep:
+                # doing this with the image components leads to identical results
+                if old_pred_noises is None:
+                    old_pred_noises = pred_noises
+                else:
+                    multistep_pred_noises = 1.5 * pred_noises - 0.5 * old_pred_noises
+                    old_pred_noises = pred_noises
+                    # calculate noise estimate from prediction
+                    _, pred_images, pred_noises = self.get_components(
+                        noisy_images,
+                        multistep_pred_noises,
+                        signal_rates,
+                        noise_rates,
+                        prediction_type="noise",
+                    )
 
             if second_order_alpha is not None:
                 # use first estimate to sample alpha steps away
@@ -237,16 +254,18 @@ class DiffusionModel(keras.Model):
         diffusion_steps,
         stochastic,
         variance_preserving,
+        multistep,
         second_order_alpha,
     ):
         initial_noise = tf.random.normal(
-            shape=(num_images, self.image_size, self.image_size, 3)
+            shape=(num_images, self.image_size, self.image_size, 3), seed=1
         )
         generated_images = self.diffusion_process(
             initial_noise,
             diffusion_steps,
             stochastic,
             variance_preserving,
+            multistep,
             second_order_alpha,
         )
         return self.denormalize(generated_images)
@@ -330,6 +349,7 @@ class DiffusionModel(keras.Model):
             diffusion_steps=self.kid_diffusion_steps,
             stochastic=False,
             variance_preserving=False,
+            multistep=False,
             second_order_alpha=None,
         )
         self.kid.update_state(images, generated_images)
@@ -345,6 +365,7 @@ class DiffusionModel(keras.Model):
         diffusion_steps=20,
         stochastic=False,
         variance_preserving=False,
+        multistep=False,
         second_order_alpha=None,
         plot_image_size=128,
     ):
@@ -353,6 +374,7 @@ class DiffusionModel(keras.Model):
             diffusion_steps,
             stochastic,
             variance_preserving,
+            multistep,
             second_order_alpha,
         )
 
