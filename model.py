@@ -40,6 +40,19 @@ class DiffusionModel(keras.Model):
         self.kid_image_size = kid_image_size
         self.kid_diffusion_steps = kid_diffusion_steps
 
+        # only required for multistep sampling
+        self.multistep_coefficients = [
+            tf.constant([1], shape=(1, 1, 1, 1, 1), dtype=tf.float32),
+            tf.constant([-1, 3], shape=(2, 1, 1, 1, 1), dtype=tf.float32) / 2,
+            tf.constant([5, -16, 23], shape=(3, 1, 1, 1, 1), dtype=tf.float32) / 12,
+            tf.constant([-9, 37, -59, 55], shape=(4, 1, 1, 1, 1), dtype=tf.float32)
+            / 24,
+            tf.constant(
+                [251, -1274, 2616, -2774, 1901], shape=(5, 1, 1, 1, 1), dtype=tf.float32
+            )
+            / 720,
+        ]
+
     def compile(self, **kwargs):
         super().compile(**kwargs)
 
@@ -136,7 +149,7 @@ class DiffusionModel(keras.Model):
             ) ** (diffusion_times ** 2)
 
         else:
-            raise NotImplementedError("Unsupported sampling schedule")
+            raise NotImplementedError("Unsupported sampling schedule.")
 
         signal_powers = 1.0 - noise_powers
 
@@ -144,20 +157,43 @@ class DiffusionModel(keras.Model):
         noise_rates = noise_powers ** 0.5
         return signal_rates, noise_rates
 
+    def generate(
+        self,
+        num_images,
+        diffusion_steps,
+        stochasticity,
+        variance_preserving,
+        num_multisteps,
+        second_order_alpha,
+    ):
+        assert num_multisteps <= 5, "Maximum 5 multisteps are supported."
+        initial_noise = tf.random.normal(
+            shape=(num_images, self.image_size, self.image_size, 3)
+        )
+        generated_images = self.diffusion_process(
+            initial_noise,
+            diffusion_steps,
+            stochasticity,
+            variance_preserving,
+            num_multisteps,
+            second_order_alpha,
+        )
+        return self.denormalize(generated_images)
+
     def diffusion_process(
         self,
         initial_noise,
         diffusion_steps,
-        stochastic,
+        stochasticity,
         variance_preserving,
-        multistep,
+        num_multisteps,
         second_order_alpha,
     ):
         batch_size = tf.shape(initial_noise)[0]
         step_size = 1.0 / diffusion_steps
 
         noisy_images = initial_noise
-        old_pred_noises = None
+        prev_pred_noises = []  # only required for multistep sampling
         for step in range(diffusion_steps):
             diffusion_times = tf.ones((batch_size, 1, 1, 1)) - step * step_size
 
@@ -169,78 +205,42 @@ class DiffusionModel(keras.Model):
                 noisy_images, predictions, signal_rates, noise_rates
             )
 
-            if multistep:
-                # doing this with the image components leads to identical results
-                if old_pred_noises is None:
-                    old_pred_noises = pred_noises
-                else:
-                    multistep_pred_noises = 1.5 * pred_noises - 0.5 * old_pred_noises
-                    old_pred_noises = pred_noises
-                    # calculate noise estimate from prediction
-                    _, pred_images, pred_noises = self.get_components(
-                        noisy_images,
-                        multistep_pred_noises,
-                        signal_rates,
-                        noise_rates,
-                        prediction_type="noise",
-                    )
-
-            if second_order_alpha is not None:
-                # use first estimate to sample alpha steps away
-                alpha_signal_rates, alpha_noise_rates = self.diffusion_schedule(
-                    diffusion_times - second_order_alpha * step_size
-                )
-                alpha_noisy_images = (
-                    alpha_signal_rates * pred_images + alpha_noise_rates * pred_noises
-                )
-                alpha_predictions = self.ema_network(
-                    [alpha_noisy_images, alpha_noise_rates ** 2], training=False
-                )
-                # calculate noise estimate from prediction
-                _, _, alpha_pred_noises = self.get_components(
-                    alpha_noisy_images,
-                    alpha_predictions,
-                    alpha_signal_rates,
-                    alpha_noise_rates,
-                )
-
-                # linearly combine the two noise estimates
-                pred_noises = (
-                    1.0 - 1.0 / (2.0 * second_order_alpha)
-                ) * pred_noises + 1.0 / (2.0 * second_order_alpha) * alpha_pred_noises
-                _, pred_images, pred_noises = self.get_components(
+            if num_multisteps > 1:
+                prev_pred_noises.append(pred_noises)
+                pred_images, pred_noises = self.multistep_correction(
                     noisy_images,
-                    pred_noises,
                     signal_rates,
                     noise_rates,
-                    prediction_type="noise",
+                    prev_pred_noises,
+                    num_multisteps,
+                )
+
+            if second_order_alpha is not None:
+                pred_images, pred_noises = self.second_order_correction(
+                    diffusion_times,
+                    step_size,
+                    noisy_images,
+                    signal_rates,
+                    noise_rates,
+                    pred_images,
+                    pred_noises,
+                    second_order_alpha,
                 )
 
             next_signal_rates, next_noise_rates = self.diffusion_schedule(
                 diffusion_times - step_size
             )
-            if stochastic:
-                sample_noise_rates = (
-                    1.0 - (signal_rates / next_signal_rates) ** 2
-                ) ** 0.5 * (next_noise_rates / noise_rates)
-                noisy_images = (
-                    next_signal_rates * pred_images
-                    + (next_noise_rates ** 2 - sample_noise_rates ** 2) ** 0.5
-                    * pred_noises
+            if stochasticity > 0.0:
+                noisy_images = self.get_stochastic_noisy_image(
+                    signal_rates,
+                    noise_rates,
+                    next_signal_rates,
+                    next_noise_rates,
+                    pred_images,
+                    pred_noises,
+                    stochasticity,
+                    variance_preserving,
                 )
-
-                sample_noises = tf.random.normal(
-                    shape=(batch_size, self.image_size, self.image_size, 3)
-                )
-                if variance_preserving:
-                    noisy_images += sample_noise_rates * sample_noises
-                else:
-                    noisy_images += (
-                        sample_noise_rates
-                        * (noise_rates / next_noise_rates)
-                        * sample_noises
-                    )
-
             else:
                 noisy_images = (
                     next_signal_rates * pred_images + next_noise_rates * pred_noises
@@ -248,27 +248,103 @@ class DiffusionModel(keras.Model):
 
         return pred_images
 
-    def generate(
+    def get_stochastic_noisy_image(
         self,
-        num_images,
-        diffusion_steps,
-        stochastic,
+        signal_rates,
+        noise_rates,
+        next_signal_rates,
+        next_noise_rates,
+        pred_images,
+        pred_noises,
+        stochasticity,
         variance_preserving,
-        multistep,
+    ):
+        sample_noise_rates = (
+            stochasticity
+            * (1.0 - (signal_rates / next_signal_rates) ** 2) ** 0.5
+            * (next_noise_rates / noise_rates)
+        )
+
+        # reduce the weight of the predicted noise component
+        noisy_images = (
+            next_signal_rates * pred_images
+            + (next_noise_rates ** 2 - sample_noise_rates ** 2) ** 0.5 * pred_noises
+        )
+
+        # add some amount of random noise instead
+        sample_noises = tf.random.normal(shape=tf.shape(pred_noises))
+        if variance_preserving:  # same amount
+            noisy_images += sample_noise_rates * sample_noises
+        else:  # larger amount
+            noisy_images += (
+                sample_noise_rates * (noise_rates / next_noise_rates) * sample_noises
+            )
+        return noisy_images
+
+    def multistep_correction(
+        self, noisy_images, signal_rates, noise_rates, prev_pred_noises, num_multisteps
+    ):
+        # linearly combine previous noise estimates
+        # doing this with the image components leads to identical results
+        pred_noises = tf.reduce_sum(
+            self.multistep_coefficients[len(prev_pred_noises) - 1]
+            * tf.stack(prev_pred_noises, axis=0),
+            axis=0,
+        )
+        if len(prev_pred_noises) == num_multisteps:
+            prev_pred_noises.pop(0)
+
+        # recalculate component estimates
+        _, pred_images, pred_noises = self.get_components(
+            noisy_images,
+            pred_noises,
+            signal_rates,
+            noise_rates,
+            prediction_type="noise",
+        )
+        return pred_images, pred_noises
+
+    def second_order_correction(
+        self,
+        diffusion_times,
+        step_size,
+        noisy_images,
+        signal_rates,
+        noise_rates,
+        pred_images,
+        pred_noises,
         second_order_alpha,
     ):
-        initial_noise = tf.random.normal(
-            shape=(num_images, self.image_size, self.image_size, 3), seed=1
+        # use first estimate to sample alpha steps away
+        alpha_signal_rates, alpha_noise_rates = self.diffusion_schedule(
+            diffusion_times - second_order_alpha * step_size
         )
-        generated_images = self.diffusion_process(
-            initial_noise,
-            diffusion_steps,
-            stochastic,
-            variance_preserving,
-            multistep,
-            second_order_alpha,
+        alpha_noisy_images = (
+            alpha_signal_rates * pred_images + alpha_noise_rates * pred_noises
         )
-        return self.denormalize(generated_images)
+        alpha_predictions = self.ema_network(
+            [alpha_noisy_images, alpha_noise_rates ** 2], training=False
+        )
+        # calculate noise estimate from prediction
+        _, _, alpha_pred_noises = self.get_components(
+            alpha_noisy_images,
+            alpha_predictions,
+            alpha_signal_rates,
+            alpha_noise_rates,
+        )
+
+        # linearly combine the two noise estimates
+        pred_noises = (1.0 - 1.0 / (2.0 * second_order_alpha)) * pred_noises + 1.0 / (
+            2.0 * second_order_alpha
+        ) * alpha_pred_noises
+        _, pred_images, pred_noises = self.get_components(
+            noisy_images,
+            pred_noises,
+            signal_rates,
+            noise_rates,
+            prediction_type="noise",
+        )
+        return pred_images, pred_noises
 
     def train_step(self, images):
         images = self.augmenter(images, training=True)
@@ -347,9 +423,9 @@ class DiffusionModel(keras.Model):
         generated_images = self.generate(
             self.batch_size,
             diffusion_steps=self.kid_diffusion_steps,
-            stochastic=False,
+            stochasticity=0.0,
             variance_preserving=False,
-            multistep=False,
+            num_multisteps=1,
             second_order_alpha=None,
         )
         self.kid.update_state(images, generated_images)
@@ -363,18 +439,18 @@ class DiffusionModel(keras.Model):
         num_rows=3,
         num_cols=8,
         diffusion_steps=20,
-        stochastic=False,
+        stochasticity=0.0,
         variance_preserving=False,
-        multistep=False,
+        num_multisteps=1,
         second_order_alpha=None,
         plot_image_size=128,
     ):
         generated_images = self.generate(
             num_rows * num_cols,
             diffusion_steps,
-            stochastic,
+            stochasticity,
             variance_preserving,
-            multistep,
+            num_multisteps,
             second_order_alpha,
         )
 
@@ -391,10 +467,10 @@ class DiffusionModel(keras.Model):
             (num_rows * plot_image_size, num_cols * plot_image_size, 3),
         )
         plt.imsave(
-            "images/{}_{}_{}_{:.3f}.png".format(
+            "images/{}_e{}_s{:.1f}_k{:.3f}.png".format(
                 self.id,
-                "final" if epoch is None else epoch + 1,
-                "s" if stochastic else "d",
+                "" if epoch is None else epoch + 1,
+                stochasticity,
                 self.kid.result(),
             ),
             generated_images.numpy(),

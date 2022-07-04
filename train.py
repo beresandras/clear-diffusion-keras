@@ -118,7 +118,7 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
-model.plot_images(diffusion_steps=20, stochastic=False)
-model.plot_images(diffusion_steps=200, stochastic=True)
+model.plot_images(diffusion_steps=20, stochasticity=0.0)
+model.plot_images(diffusion_steps=200, stochasticity=1.0)
 
 # model.evaluate(val_dataset)
