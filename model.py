@@ -119,8 +119,7 @@ class DiffusionModel(keras.Model):
         elif self.schedule_type == "cosine":
             # noise rate increases sinusoidally
             # signal rate decreases as a cosine function
-            # simplified from the improved DDPM schedule https://arxiv.org/abs/2102.09672
-            # sometimes called alpha-cosine with DDPM terminology
+            # simplified from Improved DDPM https://arxiv.org/abs/2102.09672
             start_angle = tf.asin(start_noise_power ** 0.5)
             end_angle = tf.asin(end_noise_power ** 0.5)
             diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
@@ -156,15 +155,13 @@ class DiffusionModel(keras.Model):
 
         elif self.schedule_type == "noise-step-linear":
             # the ratio between current and next-step noise powers decreases linearly
-            # similar to the DDPM schedule https://arxiv.org/abs/2006.11239
-            # sometimes called beta-linear with DDPM terminology
             noise_powers = start_noise_power * (
                 end_noise_power / start_noise_power
             ) ** (diffusion_times ** 2)
 
         elif self.schedule_type == "signal-step-linear":
-            # the ratio between current and next-step signal powers decreases linearly
-            # could be called alpha-linear with DDPM terminology
+            # the ratio between next-step and current signal powers decreases linearly
+            # based on DDPM https://arxiv.org/abs/2006.11239
             noise_powers = 1.0 - (1.0 - start_noise_power) * (
                 (1.0 - end_noise_power) / (1.0 - start_noise_power)
             ) ** (diffusion_times ** 2)
