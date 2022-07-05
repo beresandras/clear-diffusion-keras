@@ -2,6 +2,8 @@
 
 ![flowers stochastic generation](./assets/generation.webp)
 
+Diffusion models are trained to denoise noisy images, and can generate images by iteratively denoising pure noise.
+
 This repository contains:
 * An implementation of [Denoising Diffusion Implicit Models (DDIM)](https://arxiv.org/abs/2010.02502) with continuous time. All variables are properly named and the code is densely commented. It was used for ablations and hyperparameter optimization for the corresponding [Keras code example](https://keras.io/examples/generative/).
 * Stochastic sampling, with which the model becomes a [Denoising Diffusion Probabilistic Model (DDPM)](https://arxiv.org/abs/2006.11239). `Stochasticity` corresponds to *eta* in the DDIM paper, while the `variance_preserving` flag selects between the two sampling versions ([Equation 16 in DDIM](https://arxiv.org/abs/2010.02502)).
@@ -10,20 +12,20 @@ This repository contains:
 * 7 diffusion schedules, selected with `schedule_type`, see below.
 * 3 network parametrizations, selected with `prediction_type`. It can predict the unscaled random gaussian noise, the original image, or even the [diffusion velocity (v in Section 4)](https://arxiv.org/abs/2202.00512).
 * 3 loss weightings, selected with `loss_type`, which correspond minimising the error of the predicted unscaled noise, predicted original image, or the [diffusion velocity](https://arxiv.org/abs/2202.00512).
-* An implementation of [Kernel Inception Distance (KID)](https://arxiv.org/abs/1801.01401), which is a generative performance metric with a simple unbiased estimator, that is more suitable for limited amounts of images, and is also computationally cheaper to measure compared to the [Frechet Inception Distance (FID)](https://arxiv.org/abs/1706.08500). Implementation details include (all being easy to tweak):
-    * The Inceptionv3 network's pretrained weights are loaded from [Keras applications](https://keras.io/api/applications/inceptionv3/).
-    * For computational efficiency, the images are evaluated at the minimal possible resolution (75x75 instead of 299x299), therefore the exact values might not be comparable with other implementations.
-    * For computational efficiency, it is measured only on the validation splits of the datasets.
-    * For computational efficiency, it is measured on images generated with only 5 diffusion steps.
 
-### How do diffusion models work?
+My design choices are explained in detail in the corresponding [Keras code example](https://keras.io/examples/generative/).
 
-Diffusion models are trained to denoise noisy images, and can
-generate images by iteratively denoising pure noise.
+## Diffusion schedules
 
-## Generation quality on different datasets:
+![diffusion schedules](./assets/schedules.png)
 
-KID results (the lower the better):
+For this plot I used 100 diffusion steps, and a `start_log_snr` and `end_log_snr` of 5.0 and -5.0 for symmetry, while their defaults are 2.5 and -7.5.
+
+For implementation details, check out `diffusion_schedule()` in [model.py](model.py).
+
+## Generation quality
+
+[Kernel Inception Distance (KID)](https://arxiv.org/abs/1801.01401):
 
 Dataset / Loss | mean absolute error (MAE) | mean squared error (MSE)
 --- | --- | ---
@@ -32,15 +34,13 @@ Dataset / Loss | mean absolute error (MAE) | mean squared error (MSE)
 **Caltech Birds** | 1.382 | 1.697
 **CIFAR-10** | 0.217 | 0.175
 
-Default hyperparameters, tuned on Oxford Flowers.
+Trained with default hyperparameters, tuned on Oxford Flowers.
 
-## Diffusion schedules:
-
-![diffusion schedules](./assets/schedules.png)
-
-Note that for this plot I used `start_log_snr` and `end_log_snr` of 5.0 and -5.0 for symmetry, while the defaults are 2.5 and -7.5.
-
-For implementation details, check out `diffusion_schedule()` in [model.py](model.py).
+* KID is a generative performance metric with a simple unbiased estimator, that is more suitable for limited amounts of images, and is also computationally cheaper to measure compared to the [Frechet Inception Distance (FID)](https://arxiv.org/abs/1706.08500).
+* The Inceptionv3 network's pretrained weights are loaded from [Keras applications](https://keras.io/api/applications/inceptionv3/).
+* For computational efficiency, the images are evaluated at the minimal possible resolution (75x75 instead of 299x299), therefore the exact values might not be comparable with other implementations.
+* For computational efficiency, it is measured only on the validation splits of the datasets.
+* For computational efficiency, it is measured on images generated with only 5 diffusion steps.
 
 ## Visualizations
 
