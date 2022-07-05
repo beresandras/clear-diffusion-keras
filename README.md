@@ -13,7 +13,15 @@ This repository contains:
 * 3 network parametrizations, selected with `prediction_type`. It can predict the unscaled random gaussian noise, the original image, or even the [diffusion velocity (v in Section 4)](https://arxiv.org/abs/2202.00512).
 * 3 loss weightings, selected with `loss_type`, which correspond minimising the error of the predicted unscaled noise, predicted original image, or the [diffusion velocity](https://arxiv.org/abs/2202.00512).
 
-My design choices are explained in detail in the corresponding [Keras code example](https://keras.io/examples/generative/).
+The network was optimized to offer reasonable performance with modest compute requirements (training time is below an hour on an A100). Other design choices are explained in detail in the corresponding [Keras code example](https://keras.io/examples/generative/).
+
+## Sampling techniques
+
+KID at different sampling steps with different sampling techniques, using cosine schedule. Note that I selected the sampling hyperparameters using 5-step DDIM sampling.
+
+![sampling techniques](./assets/sampling.png)
+
+For first order methods network evaluations = diffusion steps, and for second order methods network evaluations = 2 * diffusion steps.
 
 ## Diffusion schedules
 
