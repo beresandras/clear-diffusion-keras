@@ -111,11 +111,16 @@ class DiffusionModel(keras.Model):
         end_noise_power = 1.0 / (1.0 + end_snr)
 
         if self.schedule_type == "linear":
+            # variance or power of noise component increases linearly
             noise_powers = start_noise_power + diffusion_times * (
                 end_noise_power - start_noise_power
             )
 
         elif self.schedule_type == "cosine":
+            # noise rate increases sinusoidally
+            # signal rate decreases as a cosine function
+            # simplified from the improved DDPM schedule https://arxiv.org/abs/2102.09672
+            # sometimes called alpha-cosine with DDPM terminology
             start_angle = tf.asin(start_noise_power ** 0.5)
             end_angle = tf.asin(end_noise_power ** 0.5)
             diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
@@ -123,17 +128,25 @@ class DiffusionModel(keras.Model):
             noise_powers = tf.sin(diffusion_angles) ** 2
 
         elif self.schedule_type == "log-snr-linear":
+            # the log signal-to-noise ratio decreases linearly
+            # proposed in VDM https://arxiv.org/abs/2107.00630
             noise_powers = start_snr ** diffusion_times / (
                 start_snr * end_snr ** diffusion_times + start_snr ** diffusion_times
             )
 
         elif self.schedule_type == "log-noise-linear":
+            # the log noise power increases linearly
+            # the noise power increases exponentially
+            # the ratio between current and next-step noise powers is constant
             noise_powers = (
                 start_noise_power
                 * (end_noise_power / start_noise_power) ** diffusion_times
             )
 
         elif self.schedule_type == "log-signal-linear":
+            # the log signal power decreases linearly
+            # the signal power decreases exponentially
+            # the ratio between current and next-step signal powers is constant
             noise_powers = (
                 1.0
                 - (1.0 - start_noise_power)
@@ -142,11 +155,16 @@ class DiffusionModel(keras.Model):
             )
 
         elif self.schedule_type == "noise-step-linear":
+            # the ratio between current and next-step noise powers decreases linearly
+            # similar to the DDPM schedule https://arxiv.org/abs/2006.11239
+            # sometimes called beta-linear with DDPM terminology
             noise_powers = start_noise_power * (
                 end_noise_power / start_noise_power
             ) ** (diffusion_times ** 2)
 
         elif self.schedule_type == "signal-step-linear":
+            # the ratio between current and next-step signal powers decreases linearly
+            # could be called alpha-linear with DDPM terminology
             noise_powers = 1.0 - (1.0 - start_noise_power) * (
                 (1.0 - end_noise_power) / (1.0 - start_noise_power)
             ) ** (diffusion_times ** 2)
@@ -158,7 +176,7 @@ class DiffusionModel(keras.Model):
         signal_powers = 1.0 - noise_powers
 
         # the rates are the square roots of the powers
-        # variance -> standard deviation
+        # variance ** 0.5 -> standard deviation
         signal_rates = signal_powers ** 0.5
         noise_rates = noise_powers ** 0.5
         return signal_rates, noise_rates
@@ -302,14 +320,19 @@ class DiffusionModel(keras.Model):
     def multistep_correction(
         self, noisy_images, signal_rates, noise_rates, prev_pred_noises, num_multisteps
     ):
+        # Adams-Bashforth multistep method
+        # https://en.wikipedia.org/wiki/Linear_multistep_method#Adams%E2%80%93Bashforth_methods
+        # based on https://arxiv.org/abs/2202.09778
+
         # linearly combine previous noise estimates
-        # doing this with the image components leads to identical results
+        # doing this with the image component leads to identical results
         pred_noises = tf.reduce_sum(
             self.multistep_coefficients[len(prev_pred_noises) - 1]
             * tf.stack(prev_pred_noises, axis=0),
             axis=0,
         )
         if len(prev_pred_noises) == num_multisteps:
+            # remove oldest noise estimate
             prev_pred_noises.pop(0)
 
         # recalculate component estimates
@@ -333,6 +356,10 @@ class DiffusionModel(keras.Model):
         pred_noises,
         second_order_alpha,
     ):
+        # generic second-order Runge-Kutta method
+        # https://en.wikipedia.org/wiki/List_of_Runge%E2%80%93Kutta_methods#Generic_second-order_method
+        # based on https://arxiv.org/abs/2206.00364
+
         # use first estimate to sample alpha steps away
         alpha_signal_rates, alpha_noise_rates = self.diffusion_schedule(
             diffusion_times - second_order_alpha * step_size
@@ -355,6 +382,8 @@ class DiffusionModel(keras.Model):
         pred_noises = (1.0 - 1.0 / (2.0 * second_order_alpha)) * pred_noises + 1.0 / (
             2.0 * second_order_alpha
         ) * alpha_pred_noises
+
+        # recalculate component estimates
         _, pred_images, pred_noises = self.get_components(
             noisy_images,
             pred_noises,
