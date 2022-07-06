@@ -37,12 +37,18 @@ For implementation details, check out `diffusion_schedule()` in [model.py](model
 
 Dataset / Loss | mean absolute error (MAE) | mean squared error (MSE)
 --- | --- | ---
-**Oxford Flowers** | 0.259 | 0.399
+**Oxford Flowers** | 0.282 | 0.399
 **CelebA** | 0.148 | 0.104
 **Caltech Birds** | 1.382 | 1.697
 **CIFAR-10** | 0.217 | 0.175
 
-Trained with default hyperparameters, tuned on Oxford Flowers.
+Network output / Loss weighting | noise | velocity | signal
+--- | --- | --- | ---
+**noise** | 0.282 | 0.327 | 0.348
+**velocity** | 0.299 | 0.290 | 0.333
+**signal** | 0.291 | 0.319 | 0.329
+
+Trained with default hyperparameters if not mentioned otherwise, tuned on Oxford Flowers.
 
 * KID is a generative performance metric with a simple unbiased estimator, that is more suitable for limited amounts of images, and is also computationally cheaper to measure compared to the [Frechet Inception Distance (FID)](https://arxiv.org/abs/1706.08500).
 * The Inceptionv3 network's pretrained weights are loaded from [Keras applications](https://keras.io/api/applications/inceptionv3/).
