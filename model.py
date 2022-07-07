@@ -119,7 +119,7 @@ class DiffusionModel(keras.Model):
         elif self.schedule_type == "cosine":
             # noise rate increases sinusoidally
             # signal rate decreases as a cosine function
-            # simplified from Improved DDPM https://arxiv.org/abs/2102.09672
+            # simplified from the "cosine schedule" of Improved DDPM https://arxiv.org/abs/2102.09672
             start_angle = tf.asin(start_noise_power ** 0.5)
             end_angle = tf.asin(end_noise_power ** 0.5)
             diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
@@ -132,39 +132,6 @@ class DiffusionModel(keras.Model):
             noise_powers = start_snr ** diffusion_times / (
                 start_snr * end_snr ** diffusion_times + start_snr ** diffusion_times
             )
-
-        elif self.schedule_type == "log-noise-linear":
-            # the log noise power increases linearly
-            # the noise power increases exponentially
-            # the ratio between current and next-step noise powers is constant
-            noise_powers = (
-                start_noise_power
-                * (end_noise_power / start_noise_power) ** diffusion_times
-            )
-
-        elif self.schedule_type == "log-signal-linear":
-            # the log signal power decreases linearly
-            # the signal power decreases exponentially
-            # the ratio between current and next-step signal powers is constant
-            noise_powers = (
-                1.0
-                - (1.0 - start_noise_power)
-                * ((1.0 - end_noise_power) / (1.0 - start_noise_power))
-                ** diffusion_times
-            )
-
-        elif self.schedule_type == "noise-step-linear":
-            # the ratio between current and next-step noise powers decreases linearly
-            noise_powers = start_noise_power * (
-                end_noise_power / start_noise_power
-            ) ** (diffusion_times ** 2)
-
-        elif self.schedule_type == "signal-step-linear":
-            # the ratio between next-step and current signal powers decreases linearly
-            # based on DDPM https://arxiv.org/abs/2006.11239
-            noise_powers = 1.0 - (1.0 - start_noise_power) * (
-                (1.0 - end_noise_power) / (1.0 - start_noise_power)
-            ) ** (diffusion_times ** 2)
 
         else:
             raise NotImplementedError("Unsupported sampling schedule.")
