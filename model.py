@@ -495,7 +495,7 @@ class DiffusionModel(keras.Model):
         )
         if self.is_jupyter:
             plt.figure(figsize=(num_cols, num_rows))
-            plt.plot(generated_images.numpy())
+            plt.imshow(generated_images.numpy())
             plt.axis("off")
             plt.tight_layout()
             plt.show()
