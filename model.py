@@ -21,6 +21,7 @@ class DiffusionModel(keras.Model):
         end_log_snr,
         kid_image_size,
         kid_diffusion_steps,
+        is_jupyter=False,
     ):
         super().__init__()
         self.id = id
@@ -39,6 +40,7 @@ class DiffusionModel(keras.Model):
         self.end_log_snr = end_log_snr
         self.kid_image_size = kid_image_size
         self.kid_diffusion_steps = kid_diffusion_steps
+        self.is_jupyter = is_jupyter
 
         # only required for multistep sampling
         self.multistep_coefficients = [
@@ -491,12 +493,20 @@ class DiffusionModel(keras.Model):
             generated_images,
             (num_rows * plot_image_size, num_cols * plot_image_size, 3),
         )
-        plt.imsave(
-            "images/{}_e{}_s{:.1f}_k{:.3f}.png".format(
-                self.id,
-                "" if epoch is None else epoch + 1,
-                stochasticity,
-                self.kid.result(),
-            ),
-            generated_images.numpy(),
-        )
+        if self.is_jupyter:
+            plt.figure(figsize=(num_cols, num_rows))
+            plt.plot(generated_images.numpy())
+            plt.axis("off")
+            plt.tight_layout()
+            plt.show()
+            plt.close()
+        else:
+            plt.imsave(
+                "images/{}_e{}_s{:.1f}_k{:.3f}.png".format(
+                    self.id,
+                    "" if epoch is None else epoch + 1,
+                    stochasticity,
+                    self.kid.result(),
+                ),
+                generated_images.numpy(),
+            )

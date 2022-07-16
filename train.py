@@ -104,7 +104,7 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 )
 
 # run training
-model.augmenter.layers[0].adapt(train_dataset)
+model.augmenter.layers[0].adapt(train_dataset)  # normalize images
 model.plot_images(epoch=0)
 model.fit(
     train_dataset,
@@ -118,7 +118,19 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
-model.plot_images(diffusion_steps=20, stochasticity=0.0)
-model.plot_images(diffusion_steps=200, stochasticity=1.0)
-
 # model.evaluate(val_dataset)
+
+# DDIM sampling
+model.plot_images(diffusion_steps=20)
+
+# DDIM multistep sampling
+model.plot_images(diffusion_steps=20, num_multisteps=2)
+
+# DDIM second order sampling
+model.plot_images(diffusion_steps=20, second_order_alpha=0.5)
+
+# DDPM variance preserving sampling
+model.plot_images(diffusion_steps=20, stochasticity=1.0, variance_preserving=True)
+
+# DDPM sampling with large variance
+model.plot_images(diffusion_steps=200, stochasticity=1.0, variance_preserving=False)

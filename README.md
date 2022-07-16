@@ -4,6 +4,9 @@
 
 Diffusion models are trained to denoise noisy images, and can generate images by iteratively denoising pure noise.
 
+[![spaces badge](https://img.shields.io/badge/%F0%9F%A4%97%20Spaces-Demo-blue.svg)](https://huggingface.co/spaces/keras-io/denoising-diffusion-implicit-models)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/beresandras/clear-diffusion-keras/blob/master/clear-diffusion-keras.ipynb)
+
 This repository contains:
 * An implementation of [Denoising Diffusion Implicit Models (DDIM)](https://arxiv.org/abs/2010.02502) with continuous time. All variables are properly named and the code is densely commented. It was used for ablations and hyperparameter optimization for the corresponding [Keras code example](https://keras.io/examples/generative/ddim/).
 * Stochastic sampling, with which the model becomes a [Denoising Diffusion Probabilistic Model (DDPM)](https://arxiv.org/abs/2006.11239). `Stochasticity` corresponds to *eta* in the DDIM paper, while the `variance_preserving` flag selects between the two sampling versions ([Equation 16 in DDIM](https://arxiv.org/abs/2010.02502)).
@@ -17,7 +20,7 @@ The network was optimized to offer reasonable performance with modest compute re
 
 ## Sampling techniques
 
-KID at different sampling steps with different sampling techniques, using cosine schedule. Note that I selected the sampling hyperparameters using 5-step DDIM sampling.
+KID at different sampling steps with different sampling techniques, using cosine schedule. Note that I selected the sampling hyperparameters using DDIM sampling and 5 diffusion steps.
 
 ![sampling techniques](./assets/sampling.png)
 
@@ -90,3 +93,5 @@ All visualizations below were generated using:
 * 32x32 resolution
 
 ![cifar10 generated images](./assets/cifar10.png)
+
+For a similar implementation of GANs and GAN losses, check out [this repository](https://github.com/beresandras/gan-flavours-keras).
