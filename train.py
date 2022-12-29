@@ -95,7 +95,7 @@ model.compile(
 
 # checkpointing
 checkpoint_path = "checkpoints/model_{}".format(id)
-checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+checkpoint_callback = keras.callbacks.ModelCheckpoint(
     filepath=checkpoint_path,
     save_weights_only=True,
     monitor="val_kid",

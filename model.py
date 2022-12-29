@@ -122,8 +122,8 @@ class DiffusionModel(keras.Model):
             # noise rate increases sinusoidally
             # signal rate decreases as a cosine function
             # simplified from the "cosine schedule" of Improved DDPM https://arxiv.org/abs/2102.09672
-            start_angle = tf.asin(start_noise_power ** 0.5)
-            end_angle = tf.asin(end_noise_power ** 0.5)
+            start_angle = tf.asin(start_noise_power**0.5)
+            end_angle = tf.asin(end_noise_power**0.5)
             diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
 
             noise_powers = tf.sin(diffusion_angles) ** 2
@@ -131,8 +131,8 @@ class DiffusionModel(keras.Model):
         elif self.schedule_type == "log-snr-linear":
             # the log signal-to-noise ratio decreases linearly
             # proposed in VDM https://arxiv.org/abs/2107.00630
-            noise_powers = start_snr ** diffusion_times / (
-                start_snr * end_snr ** diffusion_times + start_snr ** diffusion_times
+            noise_powers = start_snr**diffusion_times / (
+                start_snr * end_snr**diffusion_times + start_snr**diffusion_times
             )
 
         else:
@@ -142,9 +142,9 @@ class DiffusionModel(keras.Model):
         signal_powers = 1.0 - noise_powers
 
         # the rates are the square roots of the powers
-        # variance ** 0.5 -> standard deviation
-        signal_rates = signal_powers ** 0.5
-        noise_rates = noise_powers ** 0.5
+        # variance**0.5 -> standard deviation
+        signal_rates = signal_powers**0.5
+        noise_rates = noise_powers**0.5
         return signal_rates, noise_rates
 
     def generate(
@@ -194,7 +194,7 @@ class DiffusionModel(keras.Model):
             # predict one component of the noisy images with the network
             # exponential moving average weights are used for inference
             predictions = self.ema_network(
-                [noisy_images, noise_rates ** 2], training=False
+                [noisy_images, noise_rates**2], training=False
             )
             # calculate the other components using it
             _, pred_images, pred_noises = self.get_components(
@@ -269,7 +269,7 @@ class DiffusionModel(keras.Model):
         # reduce the power of the predicted noise component
         noisy_images = (
             next_signal_rates * pred_images
-            + (next_noise_rates ** 2 - sample_noise_rates ** 2) ** 0.5 * pred_noises
+            + (next_noise_rates**2 - sample_noise_rates**2) ** 0.5 * pred_noises
         )
 
         # add some amount of random noise instead
@@ -334,7 +334,7 @@ class DiffusionModel(keras.Model):
             alpha_signal_rates * pred_images + alpha_noise_rates * pred_noises
         )
         alpha_predictions = self.ema_network(
-            [alpha_noisy_images, alpha_noise_rates ** 2], training=False
+            [alpha_noisy_images, alpha_noise_rates**2], training=False
         )
         # calculate noise estimate from prediction
         _, _, alpha_pred_noises = self.get_components(
@@ -378,7 +378,7 @@ class DiffusionModel(keras.Model):
 
         with tf.GradientTape() as tape:
             # train the network to separate noisy images to their components
-            predictions = self.network([noisy_images, noise_rates ** 2], training=True)
+            predictions = self.network([noisy_images, noise_rates**2], training=True)
             pred_velocities, pred_images, pred_noises = self.get_components(
                 noisy_images, predictions, signal_rates, noise_rates
             )
@@ -429,7 +429,7 @@ class DiffusionModel(keras.Model):
         velocities = -noise_rates * images + signal_rates * noises
 
         # use the network to separate noisy images to their components
-        predictions = self.ema_network([noisy_images, noise_rates ** 2], training=False)
+        predictions = self.ema_network([noisy_images, noise_rates**2], training=False)
         pred_velocities, pred_images, pred_noises = self.get_components(
             noisy_images, predictions, signal_rates, noise_rates
         )
