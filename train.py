@@ -5,14 +5,13 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"  # suppress info-level logs
 matplotlib.use("Agg")
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 
 tf.get_logger().setLevel("WARN")  # suppress info-level logs
 
 from tensorflow import keras
 
 from dataset import prepare_dataset
-from architecture import get_augmenter, get_network
+from architecture import get_augmenter, get_network, get_network_big
 from model import DiffusionModel
 
 
@@ -42,15 +41,15 @@ learning_rate = 1e-3
 weight_decay = 1e-4
 
 # sampling
-schedule_type = "cosine"
-start_log_snr = 2.5
-end_log_snr = -7.5
+schedule_type = "signal-step-linear"
+start_log_snr = 9.21024037
+end_log_snr = -10.1176732
 
 # architecture
-noise_embedding_max_frequency = 200.0
-noise_embedding_dims = 32
+noise_embedding_max_frequency = 1600.0  # 200.0
+noise_embedding_dims = 64 * 4  # 32
 image_embedding_dims = 64
-widths = [32, 64, 96, 128]
+widths = [64, 128, 256, 512]  # [32, 64, 96, 128]
 block_depth = 2
 
 id = 0
@@ -67,7 +66,7 @@ model = DiffusionModel(
     augmenter=get_augmenter(
         uncropped_image_size=uncropped_image_size, image_size=image_size
     ),
-    network=get_network(
+    network=get_network_big(
         image_size=image_size,
         noise_embedding_max_frequency=noise_embedding_max_frequency,
         noise_embedding_dims=noise_embedding_dims,
@@ -85,9 +84,10 @@ model = DiffusionModel(
     kid_image_size=kid_image_size,
     kid_diffusion_steps=kid_diffusion_steps,
 )
+model.ema_network.load_weights("checkpoints/diffusion_model_checkpoint")
 
 model.compile(
-    optimizer=tfa.optimizers.AdamW(
+    optimizer=keras.optimizers.experimental.AdamW(
         learning_rate=learning_rate, weight_decay=weight_decay
     ),
     loss=keras.losses.mean_absolute_error,
@@ -95,7 +95,7 @@ model.compile(
 
 # checkpointing
 checkpoint_path = "checkpoints/model_{}".format(id)
-checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+checkpoint_callback = keras.callbacks.ModelCheckpoint(
     filepath=checkpoint_path,
     save_weights_only=True,
     monitor="val_kid",
@@ -104,8 +104,9 @@ checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 )
 
 # run training
-model.augmenter.layers[0].adapt(train_dataset)  # normalize images
+# model.augmenter.layers[0].adapt(train_dataset)  # normalize images
 model.plot_images(epoch=0)
+exit()
 model.fit(
     train_dataset,
     epochs=num_epochs,
