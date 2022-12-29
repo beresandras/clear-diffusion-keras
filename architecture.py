@@ -21,8 +21,9 @@ def get_network(
     noise_embedding_max_frequency,
     noise_embedding_dims,
     image_embedding_dims,
-    widths,
     block_depth,
+    widths,
+    attentions,
 ):
     def EmbeddingLayer(embedding_max_frequency, embedding_dims):
         def sinusoidal_embedding(x):
@@ -50,7 +51,7 @@ def get_network(
 
         return forward
 
-    def ResidualBlock(width):
+    def ResidualBlock(width, attention):
         def forward(x):
             input_width = x.shape[3]
             if input_width == width:
@@ -61,30 +62,35 @@ def get_network(
             x = layers.Conv2D(
                 width, kernel_size=3, padding="same", activation=keras.activations.swish
             )(x)
-            x = layers.Conv2D(width, kernel_size=3, padding="same")(x)
+            if attention:
+                x = layers.MultiHeadAttention(
+                    num_heads=1, key_dim=width, attention_axes=(1, 2)
+                )(x, x)
+            else:
+                x = layers.Conv2D(width, kernel_size=3, padding="same")(x)
             x = layers.Add()([residual, x])
             return x
 
         return forward
 
-    def DownBlock(block_depth, width):
+    def DownBlock(block_depth, width, attention):
         def forward(x):
             x, skips = x
             for _ in range(block_depth):
-                x = ResidualBlock(width)(x)
+                x = ResidualBlock(width, attention)(x)
                 skips.append(x)
             x = layers.AveragePooling2D(pool_size=2)(x)
             return x
 
         return forward
 
-    def UpBlock(block_depth, width):
+    def UpBlock(block_depth, width, attention):
         def forward(x):
             x, skips = x
             x = layers.UpSampling2D(size=2, interpolation="bilinear")(x)
             for _ in range(block_depth):
                 x = layers.Concatenate()([x, skips.pop()])
-                x = ResidualBlock(width)(x)
+                x = ResidualBlock(width, attention)(x)
             return x
 
         return forward
@@ -101,14 +107,14 @@ def get_network(
     n = layers.UpSampling2D(size=image_size, interpolation="nearest")(n)
     x = layers.Concatenate()([x, n])
 
-    for width in widths[:-1]:
-        x = DownBlock(block_depth, width)([x, skips])
+    for width, attention in zip(widths[:-1], attentions[:-1]):
+        x = DownBlock(block_depth, width, attention)([x, skips])
 
     for _ in range(block_depth):
-        x = ResidualBlock(widths[-1])(x)
+        x = ResidualBlock(widths[-1], attentions[-1])(x)
 
-    for width in reversed(widths[:-1]):
-        x = UpBlock(block_depth, width)([x, skips])
+    for width, attention in zip(widths[-2::-1], attentions[-2::-1]):
+        x = UpBlock(block_depth, width, attention)([x, skips])
 
     x = layers.Concatenate()([x, skips.pop()])
     x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
