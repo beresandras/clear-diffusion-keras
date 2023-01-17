@@ -13,6 +13,7 @@ from tensorflow import keras
 
 from dataset import prepare_dataset
 from architecture import get_augmenter, get_network
+from schedule import SignalStepLinearSchedule
 from model import DiffusionModel
 
 
@@ -38,17 +39,18 @@ prediction_type = "noise"
 loss_type = "noise"
 batch_size = 64
 ema = 0.999
-learning_rate = 1e-3
+learning_rate = 3e-4
 weight_decay = 1e-4
 
 # sampling
-schedule_type = "cosine"
-start_log_snr = 2.5
-end_log_snr = -7.5
+diffusion_schedule = SignalStepLinearSchedule(
+    start_log_snr=3.0,
+    end_log_snr=-10.0,
+)
 
 # architecture
-noise_embedding_max_frequency = 200.0
-noise_embedding_dims = 32
+noise_embedding_max_frequency = 1000.0
+noise_embedding_dims = 64
 image_embedding_dims = 64
 block_depth = 2
 widths = [32, 64, 96, 128]
@@ -81,9 +83,7 @@ model = DiffusionModel(
     loss_type=loss_type,
     batch_size=batch_size,
     ema=ema,
-    schedule_type=schedule_type,
-    start_log_snr=start_log_snr,
-    end_log_snr=end_log_snr,
+    diffusion_schedule=diffusion_schedule,
     kid_image_size=kid_image_size,
     kid_diffusion_steps=kid_diffusion_steps,
 )
@@ -92,7 +92,7 @@ model.compile(
     optimizer=tfa.optimizers.AdamW(
         learning_rate=learning_rate, weight_decay=weight_decay
     ),
-    loss=keras.losses.mean_absolute_error,
+    loss=keras.losses.mean_squared_error,
 )
 
 # checkpointing
@@ -107,7 +107,7 @@ checkpoint_callback = keras.callbacks.ModelCheckpoint(
 
 # run training
 model.augmenter.layers[0].adapt(train_dataset)  # normalize images
-model.plot_images(epoch=0)
+model.plot_images(epoch=-1)
 model.fit(
     train_dataset,
     epochs=num_epochs,
@@ -120,6 +120,7 @@ model.fit(
 
 # load best model
 model.load_weights(checkpoint_path)
+# model.plot_images(diffusion_steps=20, seed=42)
 # model.evaluate(val_dataset)
 
 # DDIM sampling
