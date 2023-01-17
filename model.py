@@ -16,9 +16,7 @@ class DiffusionModel(keras.Model):
         loss_type,
         batch_size,
         ema,
-        schedule_type,
-        start_log_snr,
-        end_log_snr,
+        diffusion_schedule,
         kid_image_size,
         kid_diffusion_steps,
         is_jupyter=False,
@@ -35,9 +33,7 @@ class DiffusionModel(keras.Model):
         self.loss_type = loss_type
         self.batch_size = batch_size
         self.ema = ema
-        self.schedule_type = schedule_type
-        self.start_log_snr = start_log_snr
-        self.end_log_snr = end_log_snr
+        self.diffusion_schedule = diffusion_schedule
         self.kid_image_size = kid_image_size
         self.kid_diffusion_steps = kid_diffusion_steps
         self.is_jupyter = is_jupyter
@@ -103,49 +99,14 @@ class DiffusionModel(keras.Model):
         else:
             raise NotImplementedError
 
+        normalizer = self.augmenter.layers[0]
+        pred_images = tf.clip_by_value(
+            pred_images,
+            (0.0 - normalizer.mean) / normalizer.variance**0.5,
+            (1.0 - normalizer.mean) / normalizer.variance**0.5,
+        )
+
         return pred_velocities, pred_images, pred_noises
-
-    def diffusion_schedule(self, diffusion_times):
-        start_snr = tf.exp(self.start_log_snr)
-        end_snr = tf.exp(self.end_log_snr)
-
-        start_noise_power = 1.0 / (1.0 + start_snr)
-        end_noise_power = 1.0 / (1.0 + end_snr)
-
-        if self.schedule_type == "linear":
-            # variance or power of noise component increases linearly
-            noise_powers = start_noise_power + diffusion_times * (
-                end_noise_power - start_noise_power
-            )
-
-        elif self.schedule_type == "cosine":
-            # noise rate increases sinusoidally
-            # signal rate decreases as a cosine function
-            # simplified from the "cosine schedule" of Improved DDPM https://arxiv.org/abs/2102.09672
-            start_angle = tf.asin(start_noise_power**0.5)
-            end_angle = tf.asin(end_noise_power**0.5)
-            diffusion_angles = start_angle + diffusion_times * (end_angle - start_angle)
-
-            noise_powers = tf.sin(diffusion_angles) ** 2
-
-        elif self.schedule_type == "log-snr-linear":
-            # the log signal-to-noise ratio decreases linearly
-            # proposed in VDM https://arxiv.org/abs/2107.00630
-            noise_powers = start_snr**diffusion_times / (
-                start_snr * end_snr**diffusion_times + start_snr**diffusion_times
-            )
-
-        else:
-            raise NotImplementedError("Unsupported sampling schedule.")
-
-        # the signal and noise power will always sum to one
-        signal_powers = 1.0 - noise_powers
-
-        # the rates are the square roots of the powers
-        # variance**0.5 -> standard deviation
-        signal_rates = signal_powers**0.5
-        noise_rates = noise_powers**0.5
-        return signal_rates, noise_rates
 
     def generate(
         self,
@@ -155,12 +116,15 @@ class DiffusionModel(keras.Model):
         variance_preserving,
         num_multisteps,
         second_order_alpha,
+        seed,
     ):
         assert num_multisteps <= 5, "Maximum 5 multisteps are supported."
+        if seed is not None:
+            tf.random.set_seed(seed)
 
         # noise -> images -> denormalized images
         initial_noise = tf.random.normal(
-            shape=(num_images, self.image_size, self.image_size, 3)
+            shape=(num_images, self.image_size, self.image_size, 3), seed=seed
         )
         generated_images = self.diffusion_process(
             initial_noise,
@@ -169,6 +133,7 @@ class DiffusionModel(keras.Model):
             variance_preserving,
             num_multisteps,
             second_order_alpha,
+            seed,
         )
         return self.denormalize(generated_images)
 
@@ -180,6 +145,7 @@ class DiffusionModel(keras.Model):
         variance_preserving,
         num_multisteps,
         second_order_alpha,
+        seed,
     ):
         batch_size = tf.shape(initial_noise)[0]
         step_size = 1.0 / diffusion_steps
@@ -239,6 +205,7 @@ class DiffusionModel(keras.Model):
                     pred_noises,
                     stochasticity,
                     variance_preserving,
+                    seed,
                 )
             else:
                 # remix the predicted components using the next signal and noise rates
@@ -259,6 +226,7 @@ class DiffusionModel(keras.Model):
         pred_noises,
         stochasticity,
         variance_preserving,
+        seed,
     ):
         sample_noise_rates = (
             stochasticity
@@ -273,7 +241,7 @@ class DiffusionModel(keras.Model):
         )
 
         # add some amount of random noise instead
-        sample_noises = tf.random.normal(shape=tf.shape(pred_noises))
+        sample_noises = tf.random.normal(shape=tf.shape(pred_noises), seed=seed)
         if variance_preserving:  # same amount
             noisy_images += sample_noise_rates * sample_noises
         else:  # larger amount
@@ -366,11 +334,13 @@ class DiffusionModel(keras.Model):
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
 
-        # sample uniform random diffusion times
-        diffusion_times = tf.random.uniform(
+        # sample uniform random diffusion powers
+        noise_powers = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
-        signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
+        signal_powers = 1.0 - noise_powers
+        noise_rates = noise_powers**0.5
+        signal_rates = signal_powers**0.5
 
         # mix the images with noises accordingly
         noisy_images = signal_rates * images + noise_rates * noises
@@ -418,11 +388,13 @@ class DiffusionModel(keras.Model):
             shape=(self.batch_size, self.image_size, self.image_size, 3)
         )
 
-        # sample uniform random diffusion times
-        diffusion_times = tf.random.uniform(
+        # sample uniform random diffusion powers
+        noise_powers = tf.random.uniform(
             shape=(self.batch_size, 1, 1, 1), minval=0.0, maxval=1.0
         )
-        signal_rates, noise_rates = self.diffusion_schedule(diffusion_times)
+        signal_powers = 1.0 - noise_powers
+        noise_rates = noise_powers**0.5
+        signal_rates = signal_powers**0.5
 
         # mix the images with noises accordingly
         noisy_images = signal_rates * images + noise_rates * noises
@@ -452,6 +424,7 @@ class DiffusionModel(keras.Model):
             variance_preserving=False,
             num_multisteps=1,
             second_order_alpha=None,
+            seed=None,
         )
         self.kid.update_state(images, generated_images)
 
@@ -468,6 +441,7 @@ class DiffusionModel(keras.Model):
         variance_preserving=False,
         num_multisteps=1,
         second_order_alpha=None,
+        seed=None,
         plot_image_size=128,
     ):
         # plot random generated images for visual evaluation of generation quality
@@ -478,6 +452,7 @@ class DiffusionModel(keras.Model):
             variance_preserving,
             num_multisteps,
             second_order_alpha,
+            seed,
         )
 
         # organize generated images into a grid
