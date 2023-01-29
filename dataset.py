@@ -1,13 +1,71 @@
+from typing import Dict
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import datasets as hfds
+from PIL import ImageOps
+
+from abc import ABC, abstractmethod
 
 
 def round_to_int(float_value):
     return tf.cast(tf.math.round(float_value), dtype=tf.int32)
 
 
-def preprocess_birds(image_size, padding=0.25):
-    def preprocess_image(data):
+class Dataset(ABC):
+    name: str
+    split_names: Dict[str, str]
+    repetitions: Dict[str, int]
+
+    def __init__(self, image_size, batch_size):
+        self.image_size = image_size
+        self.batch_size = batch_size
+
+    @abstractmethod
+    def preprocess(self, data):
+        pass
+
+    @abstractmethod
+    def to_tf_dataset(self, split):
+        pass
+
+
+class TFDataset(Dataset):
+    def to_tf_dataset(self, split):
+        return (
+            tfds.load(self.name, split=self.split_names[split], shuffle_files=True)
+            .map(self.preprocess, num_parallel_calls=tf.data.AUTOTUNE)
+            .cache()
+            .repeat(self.repetitions[split])
+            .shuffle(10 * self.batch_size)
+            .batch(self.batch_size, drop_remainder=True)
+            .prefetch(buffer_size=tf.data.AUTOTUNE)
+        )
+
+
+class HFDataset(Dataset):
+    def to_tf_dataset(self, split):
+        return (
+            hfds.load_dataset(self.name, split=self.split_names[split])
+            .map(self.preprocess)
+            .to_tf_dataset(batch_size=1, columns="image", prefetch=False)
+            .map(
+                lambda x: tf.cast(x[0], dtype=tf.float32) / 255.0,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
+            .repeat(self.repetitions[split])
+            .shuffle(10 * self.batch_size)
+            .batch(self.batch_size, drop_remainder=True)
+            .prefetch(buffer_size=tf.data.AUTOTUNE)
+        )
+
+
+class BirdsDataset(TFDataset):
+    name = "caltech_birds2011"
+    split_names = {"train": "train", "validation": "test"}
+    repetitions = {"train": 10, "validation": 2}
+    padding = 0.25
+
+    def preprocess(self, data):
         # unnormalize bounding box coordinates
         height = tf.cast(tf.shape(data["image"])[0], dtype=tf.float32)
         width = tf.cast(tf.shape(data["image"])[1], dtype=tf.float32)
@@ -17,8 +75,8 @@ def preprocess_birds(image_size, padding=0.25):
         target_center_y = 0.5 * (bounding_box[0] + bounding_box[2])
         target_center_x = 0.5 * (bounding_box[1] + bounding_box[3])
         target_size = tf.maximum(
-            (1.0 + padding) * (bounding_box[2] - bounding_box[0]),
-            (1.0 + padding) * (bounding_box[3] - bounding_box[1]),
+            (1.0 + self.padding) * (bounding_box[2] - bounding_box[0]),
+            (1.0 + self.padding) * (bounding_box[3] - bounding_box[1]),
         )
 
         # modify bounding box to fit into image
@@ -40,15 +98,23 @@ def preprocess_birds(image_size, padding=0.25):
 
         # resize and clip
         image = tf.image.resize(
-            image, size=[image_size, image_size], method="bicubic", antialias=True
+            image,
+            size=[self.image_size, self.image_size],
+            method="bicubic",
+            antialias=True,
         )
         return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 
-    return preprocess_image
 
+class FlowersDataset(TFDataset):
+    name = "oxford_flowers102"
+    split_names = {
+        "train": "train[:80%]+validation[:80%]+test[:80%]",
+        "validation": "train[80%:]+validation[80%:]+test[80%:]",
+    }
+    repetitions = {"train": 10, "validation": 10}
 
-def preprocess_flowers(image_size):
-    def preprocess_image(data):
+    def preprocess(self, data):
         # center crop image
         height = tf.shape(data["image"])[0]
         width = tf.shape(data["image"])[1]
@@ -63,83 +129,105 @@ def preprocess_flowers(image_size):
 
         # resize and clip
         image = tf.image.resize(
-            image, size=[image_size, image_size], method="bicubic", antialias=True
+            image,
+            size=[self.image_size, self.image_size],
+            method="bicubic",
+            antialias=True,
         )
         return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 
-    return preprocess_image
 
+class CelebsDataset(TFDataset):
+    name = "celeb_a"
+    split_names = {
+        "train": "train",
+        "validation": "validation",
+    }
+    repetitions = {"train": 1, "validation": 1}
+    crop_size = 140
 
-def preprocess_celeba(image_size, crop_size=140):
-    def preprocess_image(data):
+    def preprocess(self, data):
         # center crop image
         height = 218
         width = 178
         image = tf.image.crop_to_bounding_box(
             data["image"],
-            (height - crop_size) // 2,
-            (width - crop_size) // 2,
-            crop_size,
-            crop_size,
+            (height - self.crop_size) // 2,
+            (width - self.crop_size) // 2,
+            self.crop_size,
+            self.crop_size,
         )
 
         # resize and clip
         image = tf.image.resize(
-            image, size=[image_size, image_size], method="bicubic", antialias=True
+            image,
+            size=[self.image_size, self.image_size],
+            method="bicubic",
+            antialias=True,
         )
         return tf.clip_by_value(image / 255.0, 0.0, 1.0)
 
-    return preprocess_image
 
+class CIFAR10Dataset(TFDataset):
+    name = "cifar10"
+    split_names = {"train": "train", "validation": "test"}
+    repetitions = {"train": 1, "validation": 1}
 
-def preprocess_cifar(image_size):
-    def preprocess_image(data):
-        # will always have a resolution of 32x32
-        return tf.image.convert_image_dtype(data["image"], tf.float32)
-
-    return preprocess_image
-
-
-def prepare_dataset(dataset_name, split, image_size, batch_size):
-    preprocessors = {
-        "caltech_birds2011": preprocess_birds,
-        "oxford_flowers102": preprocess_flowers,
-        "celeb_a": preprocess_celeba,
-        "cifar10": preprocess_cifar,
-    }
-    preprocess_image = preprocessors[dataset_name](image_size)
-
-    split_index = {"train": 0, "validation": 1}
-    split_names = {
-        "caltech_birds2011": ["train", "test"],
-        "oxford_flowers102": [
-            "train[:80%]+validation[:80%]+test[:80%]",
-            "train[80%:]+validation[80%:]+test[80%:]",
-        ],
-        "celeb_a": ["train", "validation"],
-        "cifar10": ["train", "test"],
-    }
-    split_name = split_names[dataset_name][split_index[split]]
-
-    repetitions = {
-        "caltech_birds2011": [10, 2],
-        "oxford_flowers102": [10, 10],
-        "celeb_a": [1, 1],
-        "cifar10": [1, 1],
-    }
-    repetition = repetitions[dataset_name][split_index[split]]
-
-    # the validation dataset is shuffled as well, because data order matters
-    # for the KID calculation
-    return (
-        tfds.load(dataset_name, split=split_name, shuffle_files=True)
-        .map(
-            preprocess_image,
-            num_parallel_calls=tf.data.AUTOTUNE,
+    def preprocess(self, data):
+        # no antialias, since we always upsample from 32x32
+        image = tf.image.resize(
+            data["image"], size=[self.image_size, self.image_size], method="bicubic"
         )
-        .cache()
-        .repeat(repetition)
-        .shuffle(10 * batch_size)
-        .batch(batch_size, drop_remainder=True)
-        .prefetch(buffer_size=tf.data.AUTOTUNE)
-    )
+        return tf.clip_by_value(image / 255.0, 0.0, 1.0)
+
+
+class ButterfliesMuseumDataset(HFDataset):
+    name = "huggan/smithsonian_butterflies_subset"
+    split_names = {"train": "train", "validation": "train"}
+    repetitions = {"train": 50, "validation": 10}
+
+    def preprocess(self, data):
+        # center pad
+        return {
+            "image": ImageOps.pad(
+                image=data["image"],
+                size=(self.image_size, self.image_size),
+                color="white",
+            )
+        }
+
+
+class ButterfliesNatureDataset(HFDataset):
+    name = "huggan/inat_butterflies_top10k"
+    split_names = {"train": "train", "validation": "train"}
+    repetitions = {"train": 5, "validation": 1}
+
+    def preprocess(self, data):
+        # center crop
+        image = data["image"]
+        width, height = image.size
+        new_size = min(width, height)
+        left = (width - new_size) // 2
+        top = (height - new_size) // 2
+        return {
+            "image": image.resize(
+                size=(self.image_size, self.image_size),
+                box=(left, top, left + new_size, top + new_size),
+            )
+        }
+
+
+class PokemonsDataset(HFDataset):
+    name = "huggan/pokemon"
+    split_names = {"train": "train", "validation": "train"}
+    repetitions = {"train": 10, "validation": 1}
+
+    def preprocess(self, data):
+        # center pad
+        return {
+            "image": ImageOps.pad(
+                image=data["image"],
+                size=(self.image_size, self.image_size),
+                color="white",
+            )
+        }

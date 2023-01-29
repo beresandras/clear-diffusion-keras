@@ -1,9 +1,9 @@
 import tensorflow as tf
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
 
-class DiffusionSchedule:
+class DiffusionSchedule(ABC):
     def __init__(self, start_log_snr, end_log_snr):
         assert (
             start_log_snr > end_log_snr
