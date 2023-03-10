@@ -11,65 +11,62 @@ tf.get_logger().setLevel("WARN")  # suppress info-level logs
 
 from tensorflow import keras
 
-from dataset import prepare_dataset
+from dataset import (
+    BirdsDataset,
+    ButterfliesMuseumDataset,
+    ButterfliesNatureDataset,
+    CelebsDataset,
+    FlowersDataset,
+    PokemonsDataset,
+)
 from architecture import get_augmenter, get_network
-from schedule import SignalStepLinearSchedule
+from schedule import SignalStepLinearSchedule, LogSNRLinearSchedule
 from model import DiffusionModel
 
 
 # hyperparameters
 
-# data
-# some datasets might be unavailable for download at times
-dataset_name = "oxford_flowers102"
-epochs = {
-    "caltech_birds2011": 40,
-    "oxford_flowers102": 40,
-    "celeb_a": 20,
-    "cifar10": 80,
-}
-num_epochs = epochs[dataset_name]
-uncropped_image_size = 64
-image_size = 64
-kid_image_size = 75  # resolution of KID measurement (75/150/299)
-kid_diffusion_steps = 5
-
 # optimization
-prediction_type = "noise"
-loss_type = "noise"
+prediction_type = "velocity"
+loss_type = "velocity"
 batch_size = 64
 ema = 0.999
-learning_rate = 3e-4
+learning_rate = 2e-4
 weight_decay = 1e-4
+
+# data
+# some datasets might be unavailable for download at times
+num_epochs = 40
+image_size = 64
+dataset = FlowersDataset(image_size=image_size, batch_size=batch_size)
 
 # sampling
 diffusion_schedule = SignalStepLinearSchedule(
     start_log_snr=3.0,
     end_log_snr=-10.0,
 )
+kid_image_size = 75  # resolution of KID measurement (75/150/299)
+kid_diffusion_steps = 5
 
 # architecture
 noise_embedding_max_frequency = 1000.0
 noise_embedding_dims = 64
 image_embedding_dims = 64
 block_depth = 2
-widths = [32, 64, 96, 128]
-attentions = [False, False, False, False]
+widths = [32, 64, 96, 128]  # large: [64, 128, 256, 512]
+attentions = [False, False, False, False]  # large: [False, False, True, True]
+patch_size = 1
 
 id = 0
 
 # load dataset
-train_dataset = prepare_dataset(dataset_name, "train", uncropped_image_size, batch_size)
-val_dataset = prepare_dataset(
-    dataset_name, "validation", uncropped_image_size, batch_size
-)
+train_dataset = dataset.to_tf_dataset(split="train")
+val_dataset = dataset.to_tf_dataset(split="validation")
 
 # create model
 model = DiffusionModel(
     id=id,
-    augmenter=get_augmenter(
-        uncropped_image_size=uncropped_image_size, image_size=image_size
-    ),
+    augmenter=get_augmenter(image_size=image_size),
     network=get_network(
         image_size=image_size,
         noise_embedding_max_frequency=noise_embedding_max_frequency,
@@ -78,6 +75,7 @@ model = DiffusionModel(
         block_depth=block_depth,
         widths=widths,
         attentions=attentions,
+        patch_size=patch_size,
     ),
     prediction_type=prediction_type,
     loss_type=loss_type,

@@ -6,13 +6,12 @@ from tensorflow.keras import layers
 import tensorflow_addons as tfa
 
 
-def get_augmenter(uncropped_image_size, image_size):
+def get_augmenter(image_size):
     return keras.Sequential(
         [
-            keras.Input(shape=(uncropped_image_size, uncropped_image_size, 3)),
+            keras.Input(shape=(image_size, image_size, 3)),
             layers.Normalization(),
             layers.RandomFlip(mode="horizontal"),
-            layers.RandomCrop(height=image_size, width=image_size),
         ],
         name="augmenter",
     )
@@ -26,6 +25,7 @@ def get_network(
     block_depth,
     widths,
     attentions,
+    patch_size,
 ):
     def EmbeddingLayer(embedding_max_frequency, embedding_dims):
         def sinusoidal_embedding(x):
@@ -116,7 +116,9 @@ def get_network(
     images = keras.Input(shape=(image_size, image_size, 3))
     noise_powers = keras.Input(shape=(1, 1, 1))
 
-    x = layers.Conv2D(image_embedding_dims, kernel_size=1)(images)
+    x = layers.Conv2D(image_embedding_dims, kernel_size=patch_size, strides=patch_size)(
+        images
+    )
 
     n = EmbeddingLayer(noise_embedding_max_frequency, noise_embedding_dims)(
         noise_powers
@@ -134,6 +136,8 @@ def get_network(
     for width, attention in zip(widths[-2::-1], attentions[-2::-1]):
         x = UpBlock(block_depth, width, attention)([x, n, skips])
 
-    x = layers.Conv2D(3, kernel_size=1, kernel_initializer="zeros")(x)
+    x = layers.Conv2DTranspose(
+        3, kernel_size=patch_size, strides=patch_size, kernel_initializer="zeros"
+    )(x)
 
     return keras.Model([images, noise_powers], x, name="residual_unet")
