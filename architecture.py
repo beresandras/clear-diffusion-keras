@@ -3,8 +3,6 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-import tensorflow_addons as tfa
-
 
 def get_augmenter(image_size):
     return keras.Sequential(
@@ -28,7 +26,7 @@ def get_network(
     patch_size,
 ):
     def EmbeddingLayer(embedding_max_frequency, embedding_dims):
-        def sinusoidal_embedding(x):
+        def forward(x):
             embedding_min_frequency = 1.0
             frequencies = tf.exp(
                 tf.linspace(
@@ -37,19 +35,15 @@ def get_network(
                     embedding_dims // 2,
                 )
             )
-            angular_speeds = 2.0 * math.pi * frequencies
+            angular_speeds = 2.0 * math.pi * frequencies * x
             embeddings = tf.concat(
                 [
-                    tf.sin(angular_speeds * x),
-                    tf.cos(angular_speeds * x),
+                    tf.sin(angular_speeds),
+                    tf.cos(angular_speeds),
                 ],
                 axis=3,
             )
             return embeddings
-
-        def forward(x):
-            x = layers.Lambda(sinusoidal_embedding)(x)
-            return x
 
         return forward
 
@@ -64,13 +58,13 @@ def get_network(
 
             n = layers.Dense(width)(n)
 
-            x = tfa.layers.GroupNormalization(groups=8)(x)
+            x = layers.GroupNormalization(groups=8)(x)
             x = keras.activations.swish(x)
             x = layers.Conv2D(width, kernel_size=3, padding="same")(x)
 
             x = layers.Add()([x, n])
 
-            x = tfa.layers.GroupNormalization(groups=8)(x)
+            x = layers.GroupNormalization(groups=8)(x)
             x = keras.activations.swish(x)
             x = layers.Conv2D(width, kernel_size=3, padding="same")(x)
 
@@ -78,9 +72,7 @@ def get_network(
 
             if attention:
                 residual = x
-                x = tfa.layers.GroupNormalization(groups=8, center=False, scale=False)(
-                    x
-                )
+                x = layers.GroupNormalization(groups=8, center=False, scale=False)(x)
                 x = layers.MultiHeadAttention(
                     num_heads=4, key_dim=width, attention_axes=(1, 2)
                 )(x, x)

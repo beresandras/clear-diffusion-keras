@@ -5,7 +5,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "1"  # suppress info-level logs
 matplotlib.use("Agg")
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 
 tf.get_logger().setLevel("WARN")  # suppress info-level logs
 
@@ -53,8 +52,8 @@ noise_embedding_max_frequency = 1000.0
 noise_embedding_dims = 64
 image_embedding_dims = 64
 block_depth = 2
-widths = [32, 64, 96, 128]  # large: [64, 128, 256, 512]
-attentions = [False, False, False, False]  # large: [False, False, True, True]
+widths = [64, 128, 256, 512]  # smaller: [32, 64, 96, 128]
+attentions = [False, False, True, True]  # smaller: [False, False, False, False]
 patch_size = 1
 
 id = 0
@@ -87,7 +86,7 @@ model = DiffusionModel(
 )
 
 model.compile(
-    optimizer=tfa.optimizers.AdamW(
+    optimizer=keras.optimizers.AdamW(
         learning_rate=learning_rate, weight_decay=weight_decay
     ),
     loss=keras.losses.mean_squared_error,
